@@ -243,17 +243,20 @@ const HubupLocalStore = (() => {
 
     // --- Autenticação local (Netlify Standalone) ---
     if (path.startsWith('/auth/')) {
+      const encodeB64 = (s) => btoa(unescape(encodeURIComponent(String(s || ''))));
+      const decodeB64 = (s) => decodeURIComponent(escape(atob(String(s || ''))));
       const USERS_KEY = 'hubup_flow_users_v1';
       let users = [];
       try {
         users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+        if (!Array.isArray(users)) users = [];
       } catch (_) { users = []; }
       if (!users.some((u) => u.email === 'admin@hubup.com.br')) {
         users.push({
           id: 1,
           name: 'HubUP Admin',
           email: 'admin@hubup.com.br',
-          password: btoa('hubflow123'),
+          password: encodeB64('hubflow123'),
           role: 'admin',
           created_at: new Date().toISOString(),
         });
@@ -264,31 +267,32 @@ const HubupLocalStore = (() => {
         const email = String(body.email || '').trim().toLowerCase();
         const name = String(body.name || '').trim();
         const password = String(body.password || '');
+        if (name.length < 2) throw new Error('Informe seu nome completo (mínimo 2 caracteres).');
         if (!email.includes('@') || !email.split('@')[1]?.includes('.')) throw new Error('Informe um e-mail válido.');
-        if (name.length < 2) throw new Error('Informe seu nome completo.');
         if (password.length < 6) throw new Error('A senha deve ter pelo menos 6 caracteres.');
         if (users.some((u) => u.email === email)) throw new Error('Este e-mail já está cadastrado.');
         const user = {
-          id: Math.max(0, ...users.map((u) => u.id)) + 1,
+          id: Math.max(0, ...users.map((u) => u.id || 0)) + 1,
           name,
           email,
-          password: btoa(password),
+          password: encodeB64(password),
           role: 'member',
           created_at: new Date().toISOString(),
         };
         users.push(user);
         localStorage.setItem(USERS_KEY, JSON.stringify(users));
         const { password: _, ...safeUser } = user;
-        return { token: `local.${btoa(email)}`, user: safeUser };
+        return { token: `local.${encodeB64(email)}`, user: safeUser };
       }
 
       if (path === '/auth/login' && method === 'POST') {
         const email = String(body.email || '').trim().toLowerCase();
         const password = String(body.password || '');
-        const found = users.find((u) => u.email === email && u.password === btoa(password));
+        const encoded = encodeB64(password);
+        const found = users.find((u) => u.email === email && (u.password === encoded || u.password === btoa(unescape(encodeURIComponent(password)))));
         if (!found) throw new Error('E-mail ou senha incorretos.');
         const { password: _, ...safeUser } = found;
-        return { token: `local.${btoa(email)}`, user: safeUser };
+        return { token: `local.${encodeB64(email)}`, user: safeUser };
       }
 
       if (path === '/auth/reset-password' && method === 'POST') {
@@ -297,7 +301,7 @@ const HubupLocalStore = (() => {
         if (newPassword.length < 6) throw new Error('A nova senha deve ter pelo menos 6 caracteres.');
         const found = users.find((u) => u.email === email);
         if (!found) throw new Error('Nenhuma conta encontrada com este e-mail.');
-        found.password = btoa(newPassword);
+        found.password = encodeB64(newPassword);
         localStorage.setItem(USERS_KEY, JSON.stringify(users));
         return { message: 'Senha redefinida com sucesso!' };
       }
@@ -306,7 +310,7 @@ const HubupLocalStore = (() => {
         const auth = options.headers?.Authorization || '';
         const token = auth.replace(/^Bearer\s+/i, '').trim();
         if (!token.startsWith('local.')) throw new Error('Sessão inválida.');
-        const email = atob(token.slice(6));
+        const email = decodeB64(token.slice(6));
         const found = users.find((u) => u.email === email);
         if (!found) throw new Error('Usuário não encontrado.');
         const { password: _, ...safeUser } = found;
@@ -815,20 +819,38 @@ function hubupFlow() {
     async submitAuth() {
       this.authError = '';
       this.authSuccess = '';
+      const email = String(this.authForm.email || '').trim();
+      const password = String(this.authForm.password || '');
+      const name = String(this.authForm.name || '').trim();
+
+      if (!email || !email.includes('@') || !email.split('@')[1]?.includes('.')) {
+        this.authError = 'Informe um e-mail válido (ex: nome@empresa.com.br).';
+        return;
+      }
+      if (this.authTab === 'register' && name.length < 2) {
+        this.authError = 'Informe seu nome completo (mínimo 2 caracteres).';
+        return;
+      }
+      if (this.authTab !== 'login' && password.length < 6) {
+        this.authError = 'A senha deve ter pelo menos 6 caracteres.';
+        return;
+      }
+      if (this.authTab === 'login' && password.length < 1) {
+        this.authError = 'Informe sua senha.';
+        return;
+      }
+
       this.authSubmitting = true;
       try {
         if (this.authTab === 'reset') {
-          if (this.authForm.password.length < 6) {
-            throw new Error('A nova senha deve ter pelo menos 6 caracteres.');
-          }
-          if (this.authForm.password !== this.authForm.confirmPassword) {
+          if (password !== String(this.authForm.confirmPassword || '')) {
             throw new Error('As senhas informadas não conferem.');
           }
           await this.apiFetch('/auth/reset-password', {
             method: 'POST',
             body: JSON.stringify({
-              email: this.authForm.email.trim(),
-              new_password: this.authForm.password,
+              email,
+              new_password: password,
             }),
           });
           this.authTab = 'login';
@@ -841,16 +863,7 @@ function hubupFlow() {
 
         const isRegister = this.authTab === 'register';
         const endpoint = isRegister ? '/auth/register' : '/auth/login';
-        const payload = isRegister
-          ? {
-              name: this.authForm.name.trim(),
-              email: this.authForm.email.trim(),
-              password: this.authForm.password,
-            }
-          : {
-              email: this.authForm.email.trim(),
-              password: this.authForm.password,
-            };
+        const payload = isRegister ? { name, email, password } : { email, password };
 
         const res = await this.apiFetch(endpoint, {
           method: 'POST',
@@ -944,9 +957,23 @@ function hubupFlow() {
         return HubupLocalStore.request(path, mergedOptions);
       }
 
-      const response = await fetch(`${API_BASE}${path}`, mergedOptions);
+      let response;
+      try {
+        response = await fetch(`${API_BASE}${path}`, mergedOptions);
+      } catch (_) {
+        // Fallback automático caso o backend fique indisponível
+        this.localMode = true;
+        this.apiOnline = true;
+        return HubupLocalStore.request(path, mergedOptions);
+      }
 
       const contentType = response.headers.get('content-type') || '';
+      if (response.status !== 204 && !contentType.includes('application/json')) {
+        // Ex: Netlify SPA redirect retornando index.html para /api/*
+        this.localMode = true;
+        this.apiOnline = true;
+        return HubupLocalStore.request(path, mergedOptions);
+      }
       if (!response.ok || (response.status !== 204 && !contentType.includes('application/json'))) {
         let detail = `Erro HTTP ${response.status}`;
         if (contentType.includes('application/json')) {

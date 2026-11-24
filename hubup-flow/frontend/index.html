@@ -196,7 +196,7 @@
         </div>
 
         <!-- Formulário -->
-        <form @submit.prevent="submitAuth()" class="px-7 py-5 space-y-4">
+        <form novalidate @submit.prevent="submitAuth()" class="px-7 py-5 space-y-4">
           <!-- Sucesso -->
           <div
             x-show="authSuccess"
