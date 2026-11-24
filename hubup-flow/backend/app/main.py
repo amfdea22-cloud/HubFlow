@@ -39,7 +39,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(
-    title="HubUP Flow API",
+    title="HubFlow API",
     description="Plataforma Kanban Corporativa Full-Stack do Ecossistema HubUP",
     version="1.0.0",
     lifespan=lifespan,
@@ -133,7 +133,7 @@ def _reindex_column_cards(db: Session, column_id: int) -> None:
 def health_check():
     return {
         "status": "online",
-        "service": "HubUP Flow",
+        "service": "HubFlow",
         "version": "1.0.0",
     }
 

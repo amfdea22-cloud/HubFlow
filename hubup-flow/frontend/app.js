@@ -1,5 +1,5 @@
 /**
- * HubUP Flow — Frontend Application (Alpine.js + SortableJS + Lucide Icons)
+ * HubFlow — Frontend Application (Alpine.js + SortableJS + Lucide Icons)
  */
 
 function resolveApiBase() {
@@ -93,7 +93,7 @@ const HubupLocalStore = (() => {
           { col: 'Com Vocês, a Equipe!', title: 'Dica HubUP: Apresente-se para o time!', desc: 'Crie seu cartão nesta coluna com sua função, produtos em que atua e hobbies.', prio: 'baixa', assignee: 'People HubUP', labels: ['Cultura', 'Guia'], sub: [['Adicionar iniciais e cargo', true], ['Compartilhar 2 curiosidades', false]] },
           { col: 'Com Vocês, a Equipe!', title: 'André Silva — Tech Lead & Arquitetura IA', desc: 'Lidera a arquitetura do Anonymize e integrações LLM da HubUP.', prio: 'media', assignee: 'André Silva', labels: ['Equipe'] },
           { col: 'Com Vocês, a Equipe!', title: 'Beatriz Rocha — Product Design & Frontend', desc: 'Responsável pelo Design System HubUP e experiência do usuário.', prio: 'media', assignee: 'Beatriz Rocha', labels: ['Equipe'] },
-          { col: 'Com Vocês, a Equipe!', title: 'Guia de etiquetas e prioridades do HubUP Flow', desc: 'Alinhamento de etiquetas e prioridades entre todas as squads.', prio: 'baixa', assignee: 'Marina Costa', labels: ['Guia', 'Processo'] },
+          { col: 'Com Vocês, a Equipe!', title: 'Guia de etiquetas e prioridades do HubFlow', desc: 'Alinhamento de etiquetas e prioridades entre todas as squads.', prio: 'baixa', assignee: 'Marina Costa', labels: ['Guia', 'Processo'] },
           { col: 'Recursos', title: 'Estratégia e Roadmap 12 Meses — Ecossistema HubUP', desc: 'OKRs trimestrais de Anonymize, Radar FX, Barize, SkyHub e Ads Testing.', prio: 'alta', assignee: 'Marina Costa', labels: ['Estratégia'], sub: [['OKRs Q1-Q2 revisados', true], ['Metas Enterprise', true], ['Revisão semestral', false]] },
           { col: 'Recursos', title: 'Kit de Marca, Logos e Design System HubUP', desc: 'Paleta oficial, tipografia Inter e ícones padronizados.', prio: 'media', assignee: 'Beatriz Rocha', labels: ['Guia'], sub: [['Logos SVG', true], ['Tokens CSS', true], ['Templates comerciais', false]] },
           { col: 'Recursos', title: 'Playbook de Onboarding para Novos Integrantes', desc: 'Checklist para a primeira semana na HubUP.', prio: 'media', assignee: 'People HubUP', labels: ['Processo', 'Cultura'], sub: [['Acessos Git e VPN', true], ['Setup local', true], ['Café 1:1 com líderes', false]] },
@@ -103,10 +103,10 @@ const HubupLocalStore = (() => {
           { col: 'Prioridades da Semana', title: 'Sprint Semanal — Alinhamento Geral HubUP', desc: 'Checklist principal de entregas da semana.', prio: 'alta', pts: 5, assignee: 'Marina Costa', labels: ['Estratégia', 'Processo'], sub: [['Revisar alertas WIP', true], ['Validar release Anonymize', true], ['Aprovar criativos Ads', false], ['Resumo semanal sexta', false]] },
           { col: 'Prioridades da Semana', title: 'Revisão de SLA e monitoramento SkyHub', desc: 'Latência p95 e alertas de infraestrutura.', prio: 'alta', pts: 3, assignee: 'Felipe Duarte', labels: ['Processo'], sub: [['Auditar OpenTelemetry', true], ['Validar backup PG 17', false]] },
           { col: 'Projetos em Progresso', title: 'Lançamento Comercial Anonymize Enterprise (LGPD)', desc: 'Coordenação para os primeiros 10 clientes piloto.', prio: 'critica', pts: 13, assignee: 'André Silva', labels: ['Estratégia', 'Entrega'], sub: [['Demo interativa', true], ['Checklist DPO', true], ['Onboarding 3 clientes', false]] },
-          { col: 'Projetos em Progresso', title: 'Padronização Visual HubUP Flow (Claro & Escuro)', desc: 'Evolução da plataforma interna de gestão ágil.', prio: 'alta', pts: 8, assignee: 'Beatriz Rocha', labels: ['Entrega', 'Cultura'], sub: [['Modo Claro/Escuro', true], ['Menu planos de fundo', true], ['Central da Equipe', true]] },
+          { col: 'Projetos em Progresso', title: 'Padronização Visual HubFlow (Claro & Escuro)', desc: 'Evolução da plataforma interna de gestão ágil.', prio: 'alta', pts: 8, assignee: 'Beatriz Rocha', labels: ['Entrega', 'Cultura'], sub: [['Modo Claro/Escuro', true], ['Menu planos de fundo', true], ['Central da Equipe', true]] },
           { col: 'A Seguir', title: 'Planejamento Trimestral Q2 — Workshop de Squads', desc: 'Definir prioridades de Radar FX, Barize e automações IA.', prio: 'media', pts: 5, assignee: 'Marina Costa', labels: ['Estratégia'], sub: [['Coletar feedbacks', false], ['Capacidade Story Points', false]] },
           { col: 'A Seguir', title: 'Atualizar materiais de produto e capturas das lojas', desc: 'Renovar screenshots e vídeos curtos dos produtos HubUP.', prio: 'baixa', pts: 3, assignee: 'Sofia Ribeiro', labels: ['Guia'] },
-          { col: 'Concluído', title: 'Migração do Workspace Corporativo para HubUP Flow', desc: 'Todos os produtos e Central da Equipe unificados.', prio: 'alta', pts: 8, assignee: 'André Silva', labels: ['Entrega', 'Cultura'], sub: [['Importação dos quadros', true], ['Treinamento da equipe', true], ['Validação métricas', true]] },
+          { col: 'Concluído', title: 'Migração do Workspace Corporativo para HubFlow', desc: 'Todos os produtos e Central da Equipe unificados.', prio: 'alta', pts: 8, assignee: 'André Silva', labels: ['Entrega', 'Cultura'], sub: [['Importação dos quadros', true], ['Treinamento da equipe', true], ['Validação métricas', true]] },
         ]
       ),
       makeBoard(
@@ -239,7 +239,7 @@ const HubupLocalStore = (() => {
     const body = options.body ? JSON.parse(options.body) : {};
     const db = load();
 
-    if (path === '/health') return { status: 'online', service: 'HubUP Flow (Cloud Standalone)', version: '1.0.0' };
+    if (path === '/health') return { status: 'online', service: 'HubFlow (Cloud Standalone)', version: '1.0.0' };
 
     if (path === '/boards' && method === 'GET') {
       return db.boards.map((b) => {

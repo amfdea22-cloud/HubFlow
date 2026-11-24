@@ -1,4 +1,4 @@
-"""Script de seed pré-populado para o workspace corporativo HubUP Flow."""
+"""Script de seed pré-populado para o workspace corporativo HubFlow."""
 
 import argparse
 import sys
@@ -74,7 +74,7 @@ WORKSPACE_SEED = [
             },
             {
                 "column": "Com Vocês, a Equipe!",
-                "title": "Guia de etiquetas e prioridades do HubUP Flow",
+                "title": "Guia de etiquetas e prioridades do HubFlow",
                 "description": "Use as etiquetas para categorizar o tipo de demanda e as prioridades (Crítica, Alta, Média, Baixa) para alinhar urgência em todas as squads.",
                 "priority": "baixa",
                 "story_points": None,
@@ -121,7 +121,7 @@ WORKSPACE_SEED = [
                 "labels": ["Processo", "Cultura"],
                 "subtasks": [
                     ("Configuração de e-mail, Git e VPN", True),
-                    ("Setup local do HubUP Flow", True),
+                    ("Setup local do HubFlow", True),
                     ("Café 1:1 com líderes de produto", False),
                 ],
             },
@@ -139,7 +139,7 @@ WORKSPACE_SEED = [
             {
                 "column": "Perguntas Frequentes",
                 "title": "Como nossa equipe se comunica no dia a dia?",
-                "description": "Comunicação assíncrona por padrão nos cartões do HubUP Flow. Daily objetiva de 15 min às 09h30 e Demo geral às sextas-feiras às 16h.",
+                "description": "Comunicação assíncrona por padrão nos cartões do HubFlow. Daily objetiva de 15 min às 09h30 e Demo geral às sextas-feiras às 16h.",
                 "priority": "media",
                 "story_points": None,
                 "assignee": "Marina Costa",
@@ -202,7 +202,7 @@ WORKSPACE_SEED = [
             },
             {
                 "column": "Projetos em Progresso",
-                "title": "Padronização Visual HubUP Flow (Claro & Escuro)",
+                "title": "Padronização Visual HubFlow (Claro & Escuro)",
                 "description": "Evolução da plataforma interna de gestão ágil com temas personalizáveis, métricas WIP e central da equipe.",
                 "priority": "alta",
                 "story_points": 8,
@@ -241,7 +241,7 @@ WORKSPACE_SEED = [
             # 7. Concluído
             {
                 "column": "Concluído",
-                "title": "Migração do Workspace Corporativo para HubUP Flow",
+                "title": "Migração do Workspace Corporativo para HubFlow",
                 "description": "Todos os 5 produtos e a Central da Equipe unificados em uma única plataforma com controle de WIP.",
                 "priority": "alta",
                 "story_points": 8,
@@ -704,13 +704,13 @@ def run_seed(reset: bool = False) -> None:
                     )
 
         db.commit()
-        print(f"[seed] Workspace HubUP Flow atualizado com sucesso (+{len(boards_to_create)} quadro(s))!")
+        print(f"[seed] Workspace HubFlow atualizado com sucesso (+{len(boards_to_create)} quadro(s))!")
     finally:
         db.close()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Popula o banco de dados do HubUP Flow.")
+    parser = argparse.ArgumentParser(description="Popula o banco de dados do HubFlow.")
     parser.add_argument("--reset", action="store_true", help="Apaga dados existentes antes de popular.")
     args = parser.parse_args()
     run_seed(reset=args.reset)
