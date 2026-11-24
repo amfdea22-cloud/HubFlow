@@ -16,6 +16,7 @@ from app.schemas import (
     BoardDetailOut,
     BoardMetricsOut,
     BoardSummaryOut,
+    BoardUpdate,
     CardCreate,
     CardMove,
     CardOut,
@@ -223,6 +224,44 @@ def create_board(payload: BoardCreate, db: Session = Depends(get_db)):
 def get_board(board_id: int, db: Session = Depends(get_db)):
     board = _load_board_full(db, board_id)
     return _build_board_detail(board)
+
+
+@app.patch("/api/boards/{board_id}", response_model=BoardDetailOut)
+def update_board(board_id: int, payload: BoardUpdate, db: Session = Depends(get_db)):
+    board = db.execute(select(Board).where(Board.id == board_id)).scalar_one_or_none()
+    if not board:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quadro não encontrado.")
+
+    data = payload.model_dump(exclude_unset=True)
+    if "prefix_key" in data and data["prefix_key"] is not None:
+        new_prefix = data["prefix_key"].strip().upper()
+        if new_prefix != board.prefix_key:
+            exists = db.execute(
+                select(Board).where(Board.prefix_key == new_prefix, Board.id != board_id)
+            ).scalar_one_or_none()
+            if exists:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Já existe um quadro com prefixo '{new_prefix}'.",
+                )
+            board.prefix_key = new_prefix
+
+    if "name" in data and data["name"] is not None:
+        board.name = data["name"].strip()
+    if "description" in data:
+        board.description = data["description"]
+
+    db.commit()
+    return _build_board_detail(_load_board_full(db, board.id))
+
+
+@app.delete("/api/boards/{board_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_board(board_id: int, db: Session = Depends(get_db)):
+    board = db.execute(select(Board).where(Board.id == board_id)).scalar_one_or_none()
+    if not board:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quadro não encontrado.")
+    db.delete(board)
+    db.commit()
 
 
 @app.get("/api/boards/{board_id}/metrics", response_model=BoardMetricsOut)

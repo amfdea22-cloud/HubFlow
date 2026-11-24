@@ -158,6 +158,12 @@ class BoardCreate(BaseModel):
     description: Optional[str] = None
 
 
+class BoardUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    prefix_key: Optional[str] = Field(default=None, min_length=2, max_length=12)
+    description: Optional[str] = None
+
+
 class BoardDetailOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

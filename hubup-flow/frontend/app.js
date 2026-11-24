@@ -277,6 +277,34 @@ const HubupLocalStore = (() => {
       return boardDetail(b);
     }
 
+    if ((m = path.match(/^\/boards\/(\d+)$/)) && method === 'PATCH') {
+      const bidNum = Number(m[1]);
+      const b = db.boards.find((x) => x.id === bidNum);
+      if (!b) throw new Error('Quadro não encontrado.');
+      if (body.prefix_key !== undefined) {
+        const nextPrefix = String(body.prefix_key || '').trim().toUpperCase();
+        if (nextPrefix && nextPrefix !== b.prefix_key) {
+          if (db.boards.some((x) => x.prefix_key === nextPrefix && x.id !== bidNum)) {
+            throw new Error(`Já existe um quadro com prefixo '${nextPrefix}'.`);
+          }
+          b.prefix_key = nextPrefix;
+        }
+      }
+      if (body.name !== undefined) b.name = String(body.name || '').trim();
+      if (body.description !== undefined) b.description = body.description || null;
+      save(db);
+      return boardDetail(b);
+    }
+
+    if ((m = path.match(/^\/boards\/(\d+)$/)) && method === 'DELETE') {
+      const bidNum = Number(m[1]);
+      const idx = db.boards.findIndex((x) => x.id === bidNum);
+      if (idx < 0) throw new Error('Quadro não encontrado.');
+      db.boards.splice(idx, 1);
+      save(db);
+      return null;
+    }
+
     if ((m = path.match(/^\/boards\/(\d+)\/metrics$/)) && method === 'GET') {
       const b = db.boards.find((x) => x.id === Number(m[1]));
       if (!b) throw new Error('Quadro não encontrado.');
@@ -520,6 +548,13 @@ function hubupFlow() {
     accountThemeOpen: false,
     showShortcutsModal: false,
     showNewBoardModal: false,
+    showEditBoardModal: false,
+    editBoardForm: {
+      id: null,
+      name: '',
+      prefix_key: '',
+      description: '',
+    },
     labsEnabled: localStorage.getItem('hubup_labs') === 'true',
     currentUser: {
       name: 'HubUP Admin',
@@ -1631,6 +1666,92 @@ function hubupFlow() {
       this.newBoardForm = { name: '', prefix_key: '', description: '' };
       this.showNewBoardModal = true;
       this.refreshIcons();
+    },
+
+    openEditBoardModal(board = null) {
+      const target = board || this.activeBoard;
+      if (!target) return;
+      this.closeAccountMenu();
+      this.closeMenu();
+      this.editBoardForm = {
+        id: target.id,
+        name: target.name || '',
+        prefix_key: target.prefix_key || '',
+        description: target.description || '',
+      };
+      this.showEditBoardModal = true;
+      this.refreshIcons();
+    },
+
+    async submitEditBoard() {
+      const id = this.editBoardForm.id;
+      const name = this.editBoardForm.name.trim();
+      const prefix = this.editBoardForm.prefix_key.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+      if (!id || !name || prefix.length < 2) {
+        this.notify('Informe nome e um prefixo de 2 a 8 letras.', 'error');
+        return;
+      }
+      this.submitting = true;
+      try {
+        const updated = await this.apiFetch(`/boards/${id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            name,
+            prefix_key: prefix,
+            description: this.editBoardForm.description.trim() || null,
+          }),
+        });
+        this.showEditBoardModal = false;
+        await this.fetchBoards();
+        if (this.activeBoard && this.activeBoard.id === id) {
+          this.activeBoard = updated;
+          this.$nextTick(() => {
+            this.initSortable();
+            this.refreshIcons();
+          });
+        }
+        this.notify(`Quadro "${updated.name}" atualizado!`);
+      } catch (err) {
+        this.notify(`Erro ao atualizar quadro: ${err.message}`, 'error');
+      } finally {
+        this.submitting = false;
+      }
+    },
+
+    async deleteBoard(board = null) {
+      const target = board || this.activeBoard;
+      if (!target) return;
+      const confirmed = window.confirm(
+        `Deseja realmente excluir o quadro "${target.name}" (${target.prefix_key}) e todos os seus cartões?`
+      );
+      if (!confirmed) return;
+
+      try {
+        await this.apiFetch(`/boards/${target.id}`, { method: 'DELETE' });
+        this.showEditBoardModal = false;
+        this.closeMenu();
+
+        // Limpa preferências salvas do quadro excluído
+        const key = String(target.id);
+        if (this.boardPrefs[key]) {
+          const nextPrefs = { ...this.boardPrefs };
+          delete nextPrefs[key];
+          this.boardPrefs = nextPrefs;
+          this.saveBoardPrefs();
+        }
+
+        await this.fetchBoards();
+        if (this.activeBoard && this.activeBoard.id === target.id) {
+          if (this.boards.length > 0) {
+            await this.selectBoard(this.boards[0].id);
+          } else {
+            this.activeBoard = null;
+          }
+        }
+        this.notify(`Quadro "${target.name}" excluído.`);
+      } catch (err) {
+        this.notify(`Erro ao excluir quadro: ${err.message}`, 'error');
+      }
     },
 
     async submitNewBoard() {
