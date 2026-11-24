@@ -135,6 +135,149 @@
 <body class="font-sans antialiased bg-white dark:bg-hubbg text-ink dark:text-slate-200 overflow-hidden">
   <div x-data="hubupFlow()" x-init="init()" class="h-screen w-screen flex flex-col overflow-hidden">
 
+    <!-- ==================== TELA DE LOGIN / CADASTRO ==================== -->
+    <div
+      x-cloak
+      x-show="authChecked && !isAuthenticated"
+      class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gradient-to-br from-sky-50 via-indigo-50 to-violet-100 dark:from-[#060913] dark:via-hubbg dark:to-[#0B172A] overflow-y-auto"
+    >
+      <!-- Botão tema no canto superior direito -->
+      <button
+        @click="toggleTheme()"
+        :title="theme === 'dark' ? 'Alternar para modo claro' : 'Alternar para modo escuro'"
+        class="fixed top-5 right-5 h-9 px-3 rounded-lg bg-white/80 dark:bg-hubpanel/90 border border-slate-200 dark:border-hubborder shadow-sm text-ink-soft dark:text-slate-200 hover:border-sky-400 dark:hover:border-neon flex items-center gap-2 text-[12px] font-semibold transition"
+      >
+        <i x-show="theme === 'dark'" data-lucide="sun" class="w-4 h-4 text-amber-400"></i>
+        <i x-show="theme === 'light'" data-lucide="moon" class="w-4 h-4 text-sky-600"></i>
+        <span x-text="theme === 'dark' ? 'Modo Claro' : 'Modo Escuro'"></span>
+      </button>
+
+      <div class="w-full max-w-md rounded-2xl bg-white dark:bg-hubpanel border border-slate-200 dark:border-hubborder shadow-2xl dark:neon-glow overflow-hidden">
+        <!-- Cabeçalho da marca -->
+        <div class="px-7 pt-7 pb-5 text-center border-b border-slate-100 dark:border-hubborder">
+          <div class="w-12 h-12 mx-auto mb-3 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 dark:from-neon dark:to-neonblue flex items-center justify-center shadow-lg">
+            <i data-lucide="layers" class="w-6 h-6 text-white dark:text-slate-950"></i>
+          </div>
+          <div class="flex items-center justify-center gap-2">
+            <h1 class="text-[22px] font-bold tracking-tight text-ink dark:text-white">HubFlow</h1>
+            <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-sky-100 dark:bg-neon/15 text-sky-700 dark:text-neon border border-sky-200 dark:border-neon/30">
+              Enterprise
+            </span>
+          </div>
+          <p class="text-[13px] text-ink-faint dark:text-slate-400 mt-1">
+            Acesse seu workspace corporativo de gestão ágil
+          </p>
+        </div>
+
+        <!-- Abas Entrar / Criar conta -->
+        <div class="px-7 pt-5">
+          <div class="grid grid-cols-2 gap-1 p-1 rounded-xl bg-slate-100 dark:bg-hubbg border border-slate-200 dark:border-hubborder">
+            <button
+              type="button"
+              @click="authTab = 'login'; authError = ''"
+              :class="authTab === 'login'
+                ? 'bg-white dark:bg-hubpanel text-ink dark:text-white shadow-sm'
+                : 'text-ink-faint dark:text-slate-400 hover:text-ink dark:hover:text-slate-200'"
+              class="h-8 rounded-lg text-[13px] font-semibold transition"
+            >
+              Entrar
+            </button>
+            <button
+              type="button"
+              @click="authTab = 'register'; authError = ''"
+              :class="authTab === 'register'
+                ? 'bg-white dark:bg-hubpanel text-ink dark:text-white shadow-sm'
+                : 'text-ink-faint dark:text-slate-400 hover:text-ink dark:hover:text-slate-200'"
+              class="h-8 rounded-lg text-[13px] font-semibold transition"
+            >
+              Criar conta
+            </button>
+          </div>
+        </div>
+
+        <!-- Formulário -->
+        <form @submit.prevent="submitAuth()" class="px-7 py-5 space-y-4">
+          <!-- Erro -->
+          <div
+            x-show="authError"
+            class="p-3 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-500/40 text-[12px] font-medium text-red-700 dark:text-red-300 flex items-center gap-2"
+          >
+            <i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>
+            <span x-text="authError"></span>
+          </div>
+
+          <!-- Nome (apenas no cadastro) -->
+          <div x-show="authTab === 'register'">
+            <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Nome completo</label>
+            <input
+              type="text"
+              :required="authTab === 'register'"
+              x-model="authForm.name"
+              placeholder="Ex: André Silva"
+              class="w-full h-10 px-3 text-[14px] rounded-lg bg-slate-50 dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-white placeholder-ink-faint focus:outline-none focus:border-sky-500 dark:focus:border-neon focus:ring-1 focus:ring-sky-500 dark:focus:ring-neon/40"
+            />
+          </div>
+
+          <!-- E-mail -->
+          <div>
+            <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">E-mail</label>
+            <input
+              type="email"
+              required
+              x-model="authForm.email"
+              placeholder="voce@empresa.com.br"
+              class="w-full h-10 px-3 text-[14px] rounded-lg bg-slate-50 dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-white placeholder-ink-faint focus:outline-none focus:border-sky-500 dark:focus:border-neon focus:ring-1 focus:ring-sky-500 dark:focus:ring-neon/40"
+            />
+          </div>
+
+          <!-- Senha -->
+          <div>
+            <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Senha</label>
+            <div class="relative">
+              <input
+                :type="showPassword ? 'text' : 'password'"
+                required
+                :minlength="authTab === 'register' ? 6 : 1"
+                x-model="authForm.password"
+                :placeholder="authTab === 'register' ? 'Mínimo de 6 caracteres' : 'Digite sua senha'"
+                class="w-full h-10 pl-3 pr-10 text-[14px] rounded-lg bg-slate-50 dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-white placeholder-ink-faint focus:outline-none focus:border-sky-500 dark:focus:border-neon focus:ring-1 focus:ring-sky-500 dark:focus:ring-neon/40"
+              />
+              <button
+                type="button"
+                @click="showPassword = !showPassword; refreshIcons()"
+                class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink dark:hover:text-white p-1"
+              >
+                <i x-show="!showPassword" data-lucide="eye" class="w-4 h-4"></i>
+                <i x-show="showPassword" data-lucide="eye-off" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            :disabled="authSubmitting"
+            class="w-full h-10 rounded-lg text-[14px] font-semibold bg-gradient-to-r from-sky-600 to-indigo-600 dark:from-neon dark:to-neonblue hover:brightness-110 text-white dark:text-slate-950 shadow-md transition disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            <span x-text="authSubmitting ? 'Autenticando...' : (authTab === 'login' ? 'Entrar no HubFlow' : 'Criar conta e entrar')"></span>
+          </button>
+
+          <!-- Acesso rápido demo -->
+          <div x-show="authTab === 'login'" class="pt-2 border-t border-slate-100 dark:border-hubborder text-center space-y-2">
+            <p class="text-[11px] text-ink-faint dark:text-slate-400">
+              Conta de demonstração: <span class="font-mono text-ink-soft dark:text-slate-300">admin@hubup.com.br</span> / <span class="font-mono text-ink-soft dark:text-slate-300">hubflow123</span>
+            </p>
+            <button
+              type="button"
+              @click="loginDemo()"
+              class="w-full h-9 rounded-lg text-[13px] font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-ink dark:text-slate-200 border border-slate-200 dark:border-hubborder transition"
+            >
+              Entrar com conta demo
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- ==================== TOPBAR GLOBAL ==================== -->
     <header class="h-14 shrink-0 px-3 flex items-center gap-3 bg-white dark:bg-hubpanel border-b border-slate-200 dark:border-hubborder">
       <!-- Marca -->
@@ -216,7 +359,7 @@
                 <p class="text-[11px] text-ink-faint dark:text-slate-400 truncate" x-text="currentUser.email"></p>
               </div>
             </div>
-            <button @click="closeAccountMenu(); notify('Conta corporativa HubUP Enterprise ativa.')" class="w-full px-4 py-1.5 text-left text-[13px] hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+            <button @click="logout()" class="w-full px-4 py-1.5 text-left text-[13px] hover:bg-slate-100 dark:hover:bg-slate-800 transition">
               Alternar Contas
             </button>
             <button @click="closeAccountMenu(); openMenu('about')" class="w-full px-4 py-1.5 text-left text-[13px] flex items-center justify-between hover:bg-slate-100 dark:hover:bg-slate-800 transition">
@@ -289,7 +432,7 @@
 
             <hr class="my-1.5 border-slate-200 dark:border-hubborder" />
 
-            <button @click="closeAccountMenu(); notify('Sessão encerrada com segurança (modo local).')" class="w-full px-4 py-1.5 text-left text-[13px] text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition">
+            <button @click="logout()" class="w-full px-4 py-1.5 text-left text-[13px] text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition">
               Fazer Logout
             </button>
           </div>

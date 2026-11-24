@@ -7,6 +7,32 @@ PriorityType = Literal["critica", "alta", "media", "baixa"]
 FIBONACCI_POINTS = {1, 2, 3, 5, 8, 13}
 
 
+class UserRegister(BaseModel):
+    name: str = Field(..., min_length=2, max_length=120)
+    email: str = Field(..., min_length=5, max_length=160)
+    password: str = Field(..., min_length=6, max_length=128)
+
+
+class UserLogin(BaseModel):
+    email: str = Field(..., min_length=5, max_length=160)
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    email: str
+    role: str
+    created_at: datetime
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user: UserOut
+
+
 class SubtaskBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     is_completed: bool = False

@@ -1,8 +1,15 @@
+import base64
+import hashlib
+import hmac
+import json
+import os
+import secrets
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -10,8 +17,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.database import Base, engine, get_db
-from app.models import Board, BoardColumn, Card, Label, Subtask
+from app.models import Board, BoardColumn, Card, Label, Subtask, User
 from app.schemas import (
+    AuthResponse,
     BoardCreate,
     BoardDetailOut,
     BoardMetricsOut,
@@ -29,8 +37,53 @@ from app.schemas import (
     SubtaskCreate,
     SubtaskOut,
     SubtaskUpdate,
+    UserLogin,
+    UserOut,
+    UserRegister,
     WipAlertOut,
 )
+
+AUTH_SECRET = os.getenv("HUBFLOW_AUTH_SECRET", "hubflow-enterprise-secret-key-2026")
+
+
+def hash_password(password: str, salt: Optional[str] = None) -> str:
+    salt_hex = salt or secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt_hex.encode("utf-8"), 100_000)
+    return f"{salt_hex}${dk.hex()}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    try:
+        salt_hex, expected_hex = stored_hash.split("$", 1)
+    except ValueError:
+        return False
+    computed = hash_password(password, salt_hex).split("$", 1)[1]
+    return hmac.compare_digest(computed, expected_hex)
+
+
+def create_access_token(user: User) -> str:
+    payload = {
+        "sub": user.id,
+        "email": user.email,
+        "exp": int(time.time()) + 60 * 60 * 24 * 7,
+    }
+    raw = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8")
+    sig = hmac.new(AUTH_SECRET.encode("utf-8"), raw.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{raw}.{sig}"
+
+
+def decode_access_token(token: str) -> Optional[dict]:
+    try:
+        raw, sig = token.split(".", 1)
+        expected_sig = hmac.new(AUTH_SECRET.encode("utf-8"), raw.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected_sig):
+            return None
+        payload = json.loads(base64.urlsafe_b64decode(raw.encode("utf-8")).decode("utf-8"))
+        if payload.get("exp", 0) < int(time.time()):
+            return None
+        return payload
+    except Exception:
+        return None
 
 
 @asynccontextmanager
@@ -137,6 +190,56 @@ def health_check():
         "service": "HubFlow",
         "version": "1.0.0",
     }
+
+
+@app.post("/api/auth/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
+def register_user(payload: UserRegister, db: Session = Depends(get_db)):
+    email = payload.email.strip().lower()
+    if "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Informe um e-mail válido.")
+
+    existing = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Este e-mail já está cadastrado.")
+
+    user = User(
+        name=payload.name.strip(),
+        email=email,
+        password_hash=hash_password(payload.password),
+        role="member",
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return AuthResponse(token=create_access_token(user), user=UserOut.model_validate(user))
+
+
+@app.post("/api/auth/login", response_model=AuthResponse)
+def login_user(payload: UserLogin, db: Session = Depends(get_db)):
+    email = payload.email.strip().lower()
+    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    if not user or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="E-mail ou senha incorretos.")
+
+    return AuthResponse(token=create_access_token(user), user=UserOut.model_validate(user))
+
+
+@app.get("/api/auth/me", response_model=UserOut)
+def get_current_user(
+    authorization: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Não autenticado.")
+    token = authorization.split(" ", 1)[1].strip()
+    payload = decode_access_token(token)
+    if not payload or "sub" not in payload:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sessão expirada ou inválida.")
+
+    user = db.execute(select(User).where(User.id == int(payload["sub"]))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário não encontrado.")
+    return UserOut.model_validate(user)
 
 
 @app.get("/api/boards", response_model=List[BoardSummaryOut])

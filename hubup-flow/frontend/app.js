@@ -241,6 +241,68 @@ const HubupLocalStore = (() => {
 
     if (path === '/health') return { status: 'online', service: 'HubFlow (Cloud Standalone)', version: '1.0.0' };
 
+    // --- Autenticação local (Netlify Standalone) ---
+    if (path.startsWith('/auth/')) {
+      const USERS_KEY = 'hubup_flow_users_v1';
+      let users = [];
+      try {
+        users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+      } catch (_) { users = []; }
+      if (!users.some((u) => u.email === 'admin@hubup.com.br')) {
+        users.push({
+          id: 1,
+          name: 'HubUP Admin',
+          email: 'admin@hubup.com.br',
+          password: btoa('hubflow123'),
+          role: 'admin',
+          created_at: new Date().toISOString(),
+        });
+        localStorage.setItem(USERS_KEY, JSON.stringify(users));
+      }
+
+      if (path === '/auth/register' && method === 'POST') {
+        const email = String(body.email || '').trim().toLowerCase();
+        const name = String(body.name || '').trim();
+        const password = String(body.password || '');
+        if (!email.includes('@') || !email.split('@')[1]?.includes('.')) throw new Error('Informe um e-mail válido.');
+        if (name.length < 2) throw new Error('Informe seu nome completo.');
+        if (password.length < 6) throw new Error('A senha deve ter pelo menos 6 caracteres.');
+        if (users.some((u) => u.email === email)) throw new Error('Este e-mail já está cadastrado.');
+        const user = {
+          id: Math.max(0, ...users.map((u) => u.id)) + 1,
+          name,
+          email,
+          password: btoa(password),
+          role: 'member',
+          created_at: new Date().toISOString(),
+        };
+        users.push(user);
+        localStorage.setItem(USERS_KEY, JSON.stringify(users));
+        const { password: _, ...safeUser } = user;
+        return { token: `local.${btoa(email)}`, user: safeUser };
+      }
+
+      if (path === '/auth/login' && method === 'POST') {
+        const email = String(body.email || '').trim().toLowerCase();
+        const password = String(body.password || '');
+        const found = users.find((u) => u.email === email && u.password === btoa(password));
+        if (!found) throw new Error('E-mail ou senha incorretos.');
+        const { password: _, ...safeUser } = found;
+        return { token: `local.${btoa(email)}`, user: safeUser };
+      }
+
+      if (path === '/auth/me' && method === 'GET') {
+        const auth = options.headers?.Authorization || '';
+        const token = auth.replace(/^Bearer\s+/i, '').trim();
+        if (!token.startsWith('local.')) throw new Error('Sessão inválida.');
+        const email = atob(token.slice(6));
+        const found = users.find((u) => u.email === email);
+        if (!found) throw new Error('Usuário não encontrado.');
+        const { password: _, ...safeUser } = found;
+        return safeUser;
+      }
+    }
+
     if (path === '/boards' && method === 'GET') {
       return db.boards.map((b) => {
         const det = boardDetail(b);
@@ -543,6 +605,20 @@ function hubupFlow() {
     plannerAddingDate: null,
     plannerNewTitle: '',
 
+    // Autenticação de usuário
+    authChecked: false,
+    isAuthenticated: false,
+    authToken: localStorage.getItem('hubup_auth_token') || null,
+    authTab: 'login', // 'login' | 'register'
+    authSubmitting: false,
+    authError: '',
+    showPassword: false,
+    authForm: {
+      name: '',
+      email: '',
+      password: '',
+    },
+
     // Menu da Conta (canto superior direito)
     accountMenuOpen: false,
     accountThemeOpen: false,
@@ -656,6 +732,17 @@ function hubupFlow() {
       this.applyTheme(this.theme);
       this.refreshIcons();
       await this.checkHealth();
+      await this.restoreSession();
+      if (this.isAuthenticated) {
+        await this.loadWorkspace();
+      } else {
+        this.loading = false;
+      }
+      this.refreshIcons();
+    },
+
+    async loadWorkspace() {
+      this.loading = true;
       await this.fetchBoards();
       if (this.boards.length > 0) {
         const hashMatch = window.location.hash.match(/board=(\d+)/);
@@ -665,6 +752,91 @@ function hubupFlow() {
       } else {
         this.loading = false;
       }
+      this.refreshIcons();
+    },
+
+    setAuthenticatedUser(user, token) {
+      this.authToken = token;
+      localStorage.setItem('hubup_auth_token', token);
+      this.currentUser = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role || 'member',
+        initials: this.initials(user.name),
+      };
+      this.isAuthenticated = true;
+      this.authError = '';
+    },
+
+    async restoreSession() {
+      if (!this.authToken) {
+        this.isAuthenticated = false;
+        this.authChecked = true;
+        return;
+      }
+      try {
+        const user = await this.apiFetch('/auth/me');
+        this.setAuthenticatedUser(user, this.authToken);
+      } catch (_) {
+        localStorage.removeItem('hubup_auth_token');
+        this.authToken = null;
+        this.isAuthenticated = false;
+      } finally {
+        this.authChecked = true;
+      }
+    },
+
+    async submitAuth() {
+      this.authError = '';
+      this.authSubmitting = true;
+      try {
+        const isRegister = this.authTab === 'register';
+        const endpoint = isRegister ? '/auth/register' : '/auth/login';
+        const payload = isRegister
+          ? {
+              name: this.authForm.name.trim(),
+              email: this.authForm.email.trim(),
+              password: this.authForm.password,
+            }
+          : {
+              email: this.authForm.email.trim(),
+              password: this.authForm.password,
+            };
+
+        const res = await this.apiFetch(endpoint, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        this.setAuthenticatedUser(res.user, res.token);
+        this.authForm = { name: '', email: '', password: '' };
+        this.showPassword = false;
+        this.notify(`Bem-vindo(a), ${res.user.name}!`);
+        await this.loadWorkspace();
+      } catch (err) {
+        this.authError = err.message || 'Falha na autenticação.';
+      } finally {
+        this.authSubmitting = false;
+      }
+    },
+
+    async loginDemo() {
+      this.authTab = 'login';
+      this.authForm.email = 'admin@hubup.com.br';
+      this.authForm.password = 'hubflow123';
+      await this.submitAuth();
+    },
+
+    logout() {
+      this.closeAccountMenu();
+      this.closeMenu();
+      localStorage.removeItem('hubup_auth_token');
+      this.authToken = null;
+      this.isAuthenticated = false;
+      this.authTab = 'login';
+      this.authError = '';
+      this.authForm = { name: '', email: '', password: '' };
+      this.notify('Sessão encerrada com sucesso.');
       this.refreshIcons();
     },
 
@@ -698,17 +870,21 @@ function hubupFlow() {
     },
 
     async apiFetch(path, options = {}) {
-      if (this.localMode) {
-        return HubupLocalStore.request(path, options);
-      }
-
-      const response = await fetch(`${API_BASE}${path}`, {
+      const authHeaders = this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {};
+      const mergedOptions = {
+        ...options,
         headers: {
           'Content-Type': 'application/json',
+          ...authHeaders,
           ...(options.headers || {}),
         },
-        ...options,
-      });
+      };
+
+      if (this.localMode) {
+        return HubupLocalStore.request(path, mergedOptions);
+      }
+
+      const response = await fetch(`${API_BASE}${path}`, mergedOptions);
 
       const contentType = response.headers.get('content-type') || '';
       if (!response.ok || (response.status !== 204 && !contentType.includes('application/json'))) {

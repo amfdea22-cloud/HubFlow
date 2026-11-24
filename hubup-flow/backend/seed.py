@@ -12,7 +12,8 @@ if str(BASE_DIR) not in sys.path:
 from sqlalchemy import select  # noqa: E402
 
 from app.database import Base, SessionLocal, engine  # noqa: E402
-from app.models import Board, BoardColumn, Card, Label, Subtask  # noqa: E402
+from app.main import hash_password  # noqa: E402
+from app.models import Board, BoardColumn, Card, Label, Subtask, User  # noqa: E402
 
 
 WORKSPACE_SEED = [
@@ -621,6 +622,17 @@ def run_seed(reset: bool = False) -> None:
     db = SessionLocal()
     try:
         existing_boards = db.execute(select(Board)).scalars().all()
+        if not db.execute(select(User).where(User.email == "admin@hubup.com.br")).scalar_one_or_none():
+            db.add(
+                User(
+                    name="HubUP Admin",
+                    email="admin@hubup.com.br",
+                    password_hash=hash_password("hubflow123"),
+                    role="admin",
+                )
+            )
+            db.commit()
+            print("[seed] Usuário padrão criado: admin@hubup.com.br / hubflow123")
         if reset and existing_boards:
             print("[seed] --reset ativo: limpando dados existentes...")
             for board in existing_boards:
