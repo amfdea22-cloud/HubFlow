@@ -1,0 +1,52 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: hubup-flow-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hubup
+      POSTGRES_PASSWORD: hubup_secret
+      POSTGRES_DB: hubup_flow
+    ports:
+      - "5432:5432"
+    volumes:
+      - hubup_flow_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hubup -d hubup_flow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: python:3.12-slim
+    container_name: hubup-flow-backend
+    restart: unless-stopped
+    working_dir: /app
+    environment:
+      DATABASE_URL: postgresql://hubup:hubup_secret@db:5432/hubup_flow
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt &&
+             python seed.py &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  frontend:
+    image: nginx:alpine
+    container_name: hubup-flow-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+
+volumes:
+  hubup_flow_pgdata:

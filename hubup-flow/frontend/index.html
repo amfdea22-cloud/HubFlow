@@ -1,0 +1,2098 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HubUP Flow — Plataforma Kanban Enterprise</title>
+
+  <!-- Aplica o tema salvo antes da renderização (evita flash) -->
+  <script>
+    (function () {
+      const saved = localStorage.getItem('hubup_flow_theme') || 'dark';
+      document.documentElement.classList.toggle('dark', saved === 'dark');
+    })();
+  </script>
+
+  <!-- Fonte Inter (tipografia idêntica ao padrão Atlassian/modern UI do anexo) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Inter"', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', '"Noto Sans"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'],
+            mono: ['ui-monospace', '"SF Mono"', '"Cascadia Code"', 'Consolas', 'monospace'],
+          },
+          colors: {
+            hubbg: '#090D16',
+            hubpanel: '#0F172A',
+            hubcard: '#111827',
+            hubborder: '#1E293B',
+            neon: '#00F0FF',
+            neonblue: '#0EA5E9',
+            ink: { DEFAULT: '#172B4D', soft: '#44546F', faint: '#626F86' },
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- SortableJS -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
+  <!-- App Logic & Alpine.js -->
+  <script src="app.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+
+  <style>
+    [x-cloak] { display: none !important; }
+
+    html, body {
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-size: 14px;
+      line-height: 20px;
+      font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      letter-spacing: -0.006em;
+    }
+
+    .neon-glow { box-shadow: 0 0 15px rgba(0, 240, 255, 0.18); }
+
+    /* ---------- Listas (colunas) ---------- */
+    .kanban-list { background: #F1F2F4; }
+    .dark .kanban-list { background: #0F141C; }
+
+    /* ---------- Cartões ---------- */
+    .kanban-card {
+      background: #FFFFFF;
+      box-shadow: 0 1px 1px rgba(9, 30, 66, 0.25), 0 0 1px rgba(9, 30, 66, 0.31);
+      transition: box-shadow 120ms ease, background-color 120ms ease;
+    }
+    .kanban-card:hover { box-shadow: inset 0 0 0 2px #388BFF, 0 1px 1px rgba(9, 30, 66, 0.25); }
+    .dark .kanban-card { background: #1A2230; box-shadow: 0 1px 1px rgba(0, 0, 0, 0.5), 0 0 1px rgba(0, 0, 0, 0.5); }
+    .dark .kanban-card:hover { box-shadow: inset 0 0 0 2px #00F0FF, 0 0 14px rgba(0, 240, 255, 0.15); }
+
+    /* ---------- Arrastar & soltar ---------- */
+    /* Espaço reservado onde o cartão vai cair */
+    .kanban-card.card-placeholder {
+      background: rgba(9, 30, 66, 0.10) !important;
+      box-shadow: none !important;
+    }
+    .kanban-card.card-placeholder > * { visibility: hidden; }
+    .dark .kanban-card.card-placeholder { background: rgba(255, 255, 255, 0.07) !important; }
+
+    /* Cartão "levantado" que segue o cursor (inclinado) */
+    .card-dragging {
+      rotate: 4deg;
+      opacity: 1 !important;
+      z-index: 9999 !important;
+      pointer-events: none !important;
+      cursor: grabbing !important;
+      box-shadow: 0 16px 28px -8px rgba(9, 30, 66, 0.35), 0 0 1px rgba(9, 30, 66, 0.4) !important;
+    }
+    .dark .card-dragging { box-shadow: 0 18px 32px -8px rgba(0, 0, 0, 0.7), 0 0 0 2px rgba(0, 240, 255, 0.5) !important; }
+
+    /* Arrastar lista/coluna inteira */
+    .kanban-list.list-placeholder {
+      background: rgba(9, 30, 66, 0.18) !important;
+      box-shadow: none !important;
+      border-radius: 12px;
+    }
+    .kanban-list.list-placeholder > * { visibility: hidden; }
+    .dark .kanban-list.list-placeholder { background: rgba(255, 255, 255, 0.12) !important; }
+    .list-dragging {
+      rotate: 2deg;
+      opacity: 0.96 !important;
+      z-index: 9999 !important;
+      pointer-events: none !important;
+      cursor: grabbing !important;
+      box-shadow: 0 22px 44px -10px rgba(9, 30, 66, 0.45) !important;
+    }
+    body.dragging-card, body.dragging-card * { cursor: grabbing !important; user-select: none; }
+
+    /* Pan horizontal do quadro arrastando o fundo */
+    .board-scroller { cursor: default; }
+    .board-scroller.is-panning { cursor: grabbing; user-select: none; }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar { width: 8px; height: 10px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(9, 30, 66, 0.22); border-radius: 9999px; }
+    .dark ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); }
+    .board-scroller::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.18); border-radius: 9999px; margin: 0 12px; }
+    .board-scroller::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.55); }
+  </style>
+</head>
+
+<body class="font-sans antialiased bg-white dark:bg-hubbg text-ink dark:text-slate-200 overflow-hidden">
+  <div x-data="hubupFlow()" x-init="init()" class="h-screen w-screen flex flex-col overflow-hidden">
+
+    <!-- ==================== TOPBAR GLOBAL ==================== -->
+    <header class="h-14 shrink-0 px-3 flex items-center gap-3 bg-white dark:bg-hubpanel border-b border-slate-200 dark:border-hubborder">
+      <!-- Marca -->
+      <div class="flex items-center gap-2 w-60 shrink-0">
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-500 to-indigo-600 dark:from-neon dark:to-neonblue flex items-center justify-center shadow-sm">
+          <i data-lucide="layers" class="w-4 h-4 text-white dark:text-slate-950"></i>
+        </div>
+        <div class="leading-tight">
+          <div class="font-bold text-[15px] text-ink dark:text-white">HubUP Flow</div>
+          <div class="text-[10px] font-semibold uppercase tracking-wider text-sky-600 dark:text-neon">Enterprise</div>
+        </div>
+      </div>
+
+      <!-- Busca central + Criar -->
+      <div class="flex-1 flex items-center justify-center gap-2">
+        <div class="relative w-full max-w-xl">
+          <i data-lucide="search" class="w-4 h-4 text-ink-faint dark:text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+          <input
+            type="text"
+            x-model="searchQuery"
+            placeholder="Pesquisar por título, responsável ou código (ex: ANON-3)"
+            class="w-full h-9 pl-9 pr-8 text-[14px] rounded-lg bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-slate-100 placeholder-ink-faint dark:placeholder-slate-500 focus:outline-none focus:border-sky-500 dark:focus:border-neon focus:ring-1 focus:ring-sky-500 dark:focus:ring-neon/50 transition"
+          />
+          <button x-show="searchQuery" @click="searchQuery = ''" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink dark:hover:text-white">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+        <button
+          @click="openNewCardModal()"
+          class="h-9 px-3.5 rounded-lg text-[14px] font-semibold bg-sky-600 hover:bg-sky-700 dark:bg-neon dark:hover:brightness-110 text-white dark:text-slate-950 transition flex items-center gap-1.5 shrink-0"
+        >
+          <i data-lucide="plus" class="w-4 h-4"></i>
+          Criar
+        </button>
+      </div>
+
+      <!-- Ações à direita -->
+      <div class="flex items-center gap-1.5 shrink-0">
+        <div class="hidden md:flex items-center gap-1.5 px-2 h-8 rounded-lg text-[12px] font-medium"
+          :class="apiOnline ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'">
+          <span class="w-2 h-2 rounded-full" :class="apiOnline ? 'bg-emerald-500' : 'bg-red-500'"></span>
+          <span x-text="apiOnline ? 'API Online' : 'API Offline'"></span>
+          <span class="font-mono text-ink-faint dark:text-slate-500" x-text="'v' + apiVersion"></span>
+        </div>
+        <button
+          @click="toggleTheme()"
+          :title="theme === 'dark' ? 'Alternar para modo claro' : 'Alternar para modo escuro'"
+          class="w-8 h-8 rounded-full flex items-center justify-center text-ink-soft dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+        >
+          <i x-show="theme === 'dark'" data-lucide="sun" class="w-4 h-4 text-amber-400"></i>
+          <i x-show="theme === 'light'" data-lucide="moon" class="w-4 h-4"></i>
+        </button>
+
+        <!-- Botão Avatar + Menu da Conta -->
+        <div class="relative">
+          <button
+            @click="toggleAccountMenu()"
+            title="Conta HubUP"
+            :class="accountMenuOpen ? 'ring-2 ring-sky-500 dark:ring-neon ring-offset-2 ring-offset-white dark:ring-offset-hubpanel' : ''"
+            class="w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-pink-600 text-white text-[12px] font-bold flex items-center justify-center transition"
+            x-text="currentUser.initials"
+          ></button>
+
+          <!-- Dropdown Menu da Conta (estilo anexo) -->
+          <div
+            x-cloak
+            x-show="accountMenuOpen"
+            @click.outside="closeAccountMenu()"
+            @keydown.escape.window="accountMenuOpen && closeAccountMenu()"
+            x-transition
+            class="absolute right-0 mt-2 w-64 rounded-xl bg-white dark:bg-hubpanel border border-slate-200 dark:border-hubborder shadow-2xl z-50 py-2 text-ink dark:text-slate-200 overflow-hidden"
+          >
+            <!-- Seção CONTA -->
+            <p class="px-4 pt-1 pb-1.5 text-[11px] font-bold uppercase tracking-wider text-ink-faint dark:text-slate-400">CONTA</p>
+            <div class="px-4 py-1.5 flex items-center gap-2.5">
+              <span class="w-9 h-9 rounded-full bg-gradient-to-br from-orange-500 to-pink-600 text-white text-[13px] font-bold flex items-center justify-center shrink-0" x-text="currentUser.initials"></span>
+              <div class="min-w-0">
+                <p class="text-[13px] font-semibold text-ink dark:text-white truncate" x-text="currentUser.name"></p>
+                <p class="text-[11px] text-ink-faint dark:text-slate-400 truncate" x-text="currentUser.email"></p>
+              </div>
+            </div>
+            <button @click="closeAccountMenu(); notify('Conta corporativa HubUP Enterprise ativa.')" class="w-full px-4 py-1.5 text-left text-[13px] hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+              Alternar Contas
+            </button>
+            <button @click="closeAccountMenu(); openMenu('about')" class="w-full px-4 py-1.5 text-left text-[13px] flex items-center justify-between hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+              <span>Gerenciar conta</span>
+              <i data-lucide="external-link" class="w-3.5 h-3.5 text-ink-faint"></i>
+            </button>
+
+            <hr class="my-1.5 border-slate-200 dark:border-hubborder" />
+
+            <!-- Seção HUBUP FLOW -->
+            <p class="px-4 pt-1 pb-1 text-[11px] font-bold uppercase tracking-wider text-ink-faint dark:text-slate-400">HUBUP FLOW</p>
+            <button @click="closeAccountMenu(); openShareModal()" class="w-full px-4 py-1.5 text-left text-[13px] hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+              Perfil e visibilidade
+            </button>
+            <button @click="closeAccountMenu(); switchView('metrics')" class="w-full px-4 py-1.5 text-left text-[13px] hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+              Atividade &amp; Métricas
+            </button>
+            <button @click="closeAccountMenu(); switchView('kanban'); leftPanel = 'inbox'" class="w-full px-4 py-1.5 text-left text-[13px] hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+              Cartões &amp; Caixa de entrada
+            </button>
+            <button @click="closeAccountMenu(); openMenu('settings')" class="w-full px-4 py-1.5 text-left text-[13px] hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+              Configurações
+            </button>
+            <button @click="toggleLabs()" class="w-full px-4 py-1.5 text-left text-[13px] flex items-center justify-between hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+              <span>Laboratórios</span>
+              <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border"
+                :class="labsEnabled ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-500/40' : 'bg-slate-100 dark:bg-slate-800 text-ink-faint border-slate-200 dark:border-hubborder'">
+                <i data-lucide="flask-conical" class="w-3 h-3"></i>
+                Laboratórios
+              </span>
+            </button>
+
+            <!-- Tema com submenu inline -->
+            <div>
+              <button @click="accountThemeOpen = !accountThemeOpen; refreshIcons()" class="w-full px-4 py-1.5 text-left text-[13px] flex items-center justify-between hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                <span class="flex items-center gap-2">
+                  <i data-lucide="contrast" class="w-3.5 h-3.5 text-ink-soft dark:text-slate-400"></i>
+                  <span>Tema</span>
+                </span>
+                <i data-lucide="chevron-right" class="w-3.5 h-3.5 text-ink-faint transition-transform" :class="accountThemeOpen && 'rotate-90'"></i>
+              </button>
+              <div x-show="accountThemeOpen" class="px-3 py-1 bg-slate-50 dark:bg-hubbg border-y border-slate-200 dark:border-hubborder space-y-0.5">
+                <button @click="applyTheme('light')" class="w-full px-2.5 py-1.5 rounded text-left text-[12px] flex items-center justify-between hover:bg-slate-200/70 dark:hover:bg-slate-800">
+                  <span class="flex items-center gap-2"><i data-lucide="sun" class="w-3.5 h-3.5 text-amber-500"></i> Claro</span>
+                  <i x-show="theme === 'light'" data-lucide="check" class="w-3.5 h-3.5 text-sky-600"></i>
+                </button>
+                <button @click="applyTheme('dark')" class="w-full px-2.5 py-1.5 rounded text-left text-[12px] flex items-center justify-between hover:bg-slate-200/70 dark:hover:bg-slate-800">
+                  <span class="flex items-center gap-2"><i data-lucide="moon" class="w-3.5 h-3.5 text-sky-400"></i> Escuro</span>
+                  <i x-show="theme === 'dark'" data-lucide="check" class="w-3.5 h-3.5 text-neon"></i>
+                </button>
+              </div>
+            </div>
+
+            <hr class="my-1.5 border-slate-200 dark:border-hubborder" />
+
+            <!-- Criar Área de trabalho / Novo Quadro -->
+            <button @click="openNewBoardModal()" class="w-full px-4 py-1.5 text-left text-[13px] flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+              <i data-lucide="users" class="w-3.5 h-3.5 text-ink-soft dark:text-slate-400"></i>
+              <span>Criar novo quadro</span>
+            </button>
+
+            <hr class="my-1.5 border-slate-200 dark:border-hubborder" />
+
+            <button @click="closeAccountMenu(); openTeamHub()" class="w-full px-4 py-1.5 text-left text-[13px] hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+              Ajuda (Central da Equipe)
+            </button>
+            <button @click="closeAccountMenu(); showShortcutsModal = true; refreshIcons()" class="w-full px-4 py-1.5 text-left text-[13px] hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+              Atalhos
+            </button>
+
+            <hr class="my-1.5 border-slate-200 dark:border-hubborder" />
+
+            <button @click="closeAccountMenu(); notify('Sessão encerrada com segurança (modo local).')" class="w-full px-4 py-1.5 text-left text-[13px] text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition">
+              Fazer Logout
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- ==================== CORPO ==================== -->
+    <div class="flex-1 min-h-0 flex gap-2 p-2 bg-white dark:bg-hubbg">
+
+      <!-- ===== PAINEL LATERAL ESQUERDO 1: CAIXA DE ENTRADA ===== -->
+      <aside x-cloak x-show="leftPanel === 'inbox'"
+        class="w-72 shrink-0 rounded-xl flex flex-col overflow-hidden bg-gradient-to-b from-sky-50 via-blue-50/70 to-indigo-50/70 dark:from-hubpanel dark:via-hubpanel dark:to-hubpanel border border-sky-100 dark:border-hubborder">
+        <div class="h-12 px-3 border-b border-sky-100 dark:border-hubborder flex items-center justify-between">
+          <div class="flex items-center gap-2 font-semibold text-ink dark:text-white">
+            <i data-lucide="inbox" class="w-4 h-4 text-sky-600 dark:text-neon"></i>
+            <span>Caixa de entrada</span>
+          </div>
+          <button @click="leftPanel = 'none'" title="Recolher painel" class="w-7 h-7 rounded-lg flex items-center justify-center text-ink-soft dark:text-slate-400 hover:bg-white/70 dark:hover:bg-slate-800">
+            <i data-lucide="panel-left-close" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <div class="p-2.5 space-y-2 flex-1 overflow-y-auto">
+          <form @submit.prevent="addInboxItem()">
+            <input
+              type="text"
+              x-model="newInboxTitle"
+              placeholder="Adicionar um cartão..."
+              class="w-full h-9 px-3 text-[13px] rounded-lg bg-white dark:bg-hubbg border border-sky-200/80 dark:border-hubborder text-ink dark:text-white placeholder-ink-faint shadow-sm focus:outline-none focus:border-sky-500 dark:focus:border-neon"
+            />
+          </form>
+
+          <div x-show="inboxItems.length === 0" class="py-8 px-3 text-center text-[12px] text-ink-faint dark:text-slate-400">
+            Sua caixa de entrada está limpa. Capture ideias aqui e envie para qualquer quadro!
+          </div>
+
+          <div class="inbox-drop-list space-y-2 min-h-[140px]" data-drop-type="inbox">
+            <template x-for="item in inboxItems" :key="item.id">
+              <div :data-inbox-id="item.id" class="inbox-drag-item group/inb p-2.5 rounded-lg bg-white dark:bg-hubcard shadow-sm border border-slate-200/80 dark:border-hubborder space-y-2 cursor-grab active:cursor-grabbing select-none">
+                <div class="flex items-start gap-2">
+                  <input type="checkbox" :checked="item.done" @change="toggleInboxItem(item.id)" class="mt-0.5 w-4 h-4 accent-sky-600 dark:accent-[#00F0FF] cursor-pointer" />
+                  <p class="flex-1 text-[13px] leading-snug" :class="item.done ? 'line-through text-ink-faint' : 'text-ink dark:text-slate-100'" x-text="item.title"></p>
+                </div>
+                <div class="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-hubborder">
+                  <button @click="sendInboxToBoard(item)" title="Enviar para o quadro ativo"
+                    class="text-[11px] font-semibold text-sky-600 dark:text-neon hover:underline inline-flex items-center gap-1">
+                    <i data-lucide="send" class="w-3 h-3"></i>
+                    <span>Enviar ao quadro</span>
+                  </button>
+                  <button @click="deleteInboxItem(item.id)" title="Remover" class="text-ink-faint hover:text-red-500 p-0.5">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                  </button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <div class="px-3 py-2 border-t border-sky-100 dark:border-hubborder text-[11px] text-ink-faint dark:text-slate-400 flex items-center justify-center gap-1.5">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5 text-sky-500 dark:text-neon"></i>
+          <span>Consolide suas tarefas</span>
+        </div>
+      </aside>
+
+      <!-- ===== PAINEL LATERAL ESQUERDO 2: PLANEJADOR (estilo anexo) ===== -->
+      <aside x-cloak x-show="leftPanel === 'planner'"
+        class="w-72 shrink-0 rounded-xl flex flex-col overflow-hidden bg-white dark:bg-hubpanel border border-slate-200 dark:border-hubborder">
+        <!-- Cabeçalho do Planejador -->
+        <div class="h-12 px-3 border-b border-slate-200 dark:border-hubborder flex items-center justify-between gap-1">
+          <div class="flex items-center gap-1.5">
+            <i data-lucide="calendar" class="w-4 h-4 text-ink-soft dark:text-neon"></i>
+            <span class="text-[13px] font-semibold text-ink dark:text-white capitalize" x-text="plannerMonthLabel()"></span>
+          </div>
+          <div class="flex items-center gap-1">
+            <button @click="shiftPlanner(-7)" title="Semana anterior" class="w-7 h-7 rounded hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-ink-soft dark:text-slate-300">
+              <i data-lucide="chevron-left" class="w-4 h-4"></i>
+            </button>
+            <button @click="resetPlannerToday()" class="h-7 px-2 rounded text-[12px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-ink dark:text-slate-200">
+              Hoje
+            </button>
+            <button @click="shiftPlanner(7)" title="Próxima semana" class="w-7 h-7 rounded hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-ink-soft dark:text-slate-300">
+              <i data-lucide="chevron-right" class="w-4 h-4"></i>
+            </button>
+            <button @click="leftPanel = 'none'" title="Recolher planejador" class="w-7 h-7 rounded hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-ink-soft dark:text-slate-400">
+              <i data-lucide="panel-left-close" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Lista de Dias -->
+        <div class="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-hubborder">
+          <template x-for="day in plannerDays()" :key="day.iso">
+            <div class="px-3 py-2.5 group/day">
+              <div class="flex items-center justify-between gap-2 mb-1">
+                <div class="text-[12px] leading-4">
+                  <span x-show="day.prefix" class="font-bold text-ink dark:text-white mr-1" x-text="day.prefix"></span>
+                  <span :class="day.prefix ? 'text-ink-faint dark:text-slate-400' : 'font-semibold text-ink dark:text-slate-200'" x-text="day.label"></span>
+                </div>
+                <button @click="openPlannerAdd(day.iso)" title="Planejar tarefa neste dia"
+                  class="w-6 h-6 rounded flex items-center justify-center text-ink-faint hover:text-sky-600 dark:hover:text-neon hover:bg-slate-100 dark:hover:bg-slate-800 opacity-0 group-hover/day:opacity-100 transition">
+                  <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+
+              <!-- Tarefas planejadas (drop zone por dia) -->
+              <div class="planner-day-drop space-y-1 min-h-[24px]" data-drop-type="planner" :data-planner-date="day.iso">
+                <template x-for="t in getPlannerTasks(day.iso)" :key="t.id">
+                  <div :data-planner-task-id="t.id" class="planner-drag-item flex items-center gap-2 px-2 py-1 rounded-md bg-slate-50 dark:bg-hubbg border border-slate-200/70 dark:border-hubborder text-[12px] cursor-grab active:cursor-grabbing select-none">
+                    <input type="checkbox" :checked="t.done" @change="togglePlannerTask(day.iso, t.id)" class="w-3.5 h-3.5 accent-sky-600 dark:accent-[#00F0FF] cursor-pointer" />
+                    <span class="flex-1 truncate" :class="t.done ? 'line-through text-ink-faint' : 'text-ink dark:text-slate-200'" x-text="t.title"></span>
+                    <button @click="deletePlannerTask(day.iso, t.id)" class="text-ink-faint hover:text-red-500">
+                      <i data-lucide="x" class="w-3 h-3"></i>
+                    </button>
+                  </div>
+                </template>
+              </div>
+
+              <p x-show="getPlannerTasks(day.iso).length === 0 && plannerAddingDate !== day.iso"
+                @click="openPlannerAdd(day.iso)"
+                class="text-[12px] text-ink-faint dark:text-slate-500 py-1 cursor-pointer hover:text-sky-600 dark:hover:text-neon transition">
+                Nada planejado
+              </p>
+
+              <!-- Form inline -->
+              <form x-show="plannerAddingDate === day.iso" @submit.prevent="submitPlannerTask(day.iso)" class="mt-1.5 flex gap-1">
+                <input
+                  :id="`planner-input-${day.iso}`"
+                  type="text"
+                  x-model="plannerNewTitle"
+                  @keydown.escape="plannerAddingDate = null"
+                  placeholder="Planejar tarefa..."
+                  class="min-w-0 flex-1 h-7 px-2 text-[12px] rounded bg-white dark:bg-hubbg border border-sky-400 dark:border-neon text-ink dark:text-white focus:outline-none"
+                />
+                <button type="submit" class="h-7 px-2 rounded bg-sky-600 dark:bg-neon text-white dark:text-slate-950 text-[11px] font-semibold">OK</button>
+              </form>
+            </div>
+          </template>
+        </div>
+      </aside>
+
+      <!-- ===== PAINEL LATERAL ESQUERDO 3: QUADROS DO WORKSPACE ===== -->
+      <aside x-show="leftPanel === 'boards'" class="w-64 shrink-0 rounded-xl flex flex-col overflow-hidden bg-gradient-to-b from-sky-50 via-indigo-50/60 to-violet-50 dark:from-hubpanel dark:via-hubpanel dark:to-hubpanel border border-sky-100 dark:border-hubborder">
+        <!-- Seção Destacada: Central de Organização da Equipe -->
+        <div x-show="teamHubBoard()" class="px-2 pt-2.5 pb-2 border-b border-sky-100 dark:border-hubborder">
+          <p class="px-1.5 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-faint dark:text-slate-500 flex items-center gap-1.5">
+            <i data-lucide="users" class="w-3.5 h-3.5 text-pink-500 dark:text-neon"></i>
+            Área da Equipe
+          </p>
+          <button
+            @click="openTeamHub()"
+            :class="isTeamHubActive()
+              ? 'bg-white dark:bg-slate-800 shadow-sm ring-2 ring-pink-400/70 dark:ring-neon/60'
+              : 'bg-white/60 dark:bg-hubbg/60 hover:bg-white dark:hover:bg-slate-800/80'"
+            class="w-full text-left p-2 rounded-lg transition flex items-center gap-2.5"
+          >
+            <span class="w-9 h-7 rounded-md shrink-0 shadow-inner flex items-center justify-center text-white"
+              :style="boardBgStyle(teamHubBoard())">
+              <i data-lucide="building-2" class="w-4 h-4 drop-shadow"></i>
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-[13px] font-semibold text-ink dark:text-white truncate">Central da Equipe</span>
+              <span class="flex items-center gap-1.5 text-[11px] text-ink-faint dark:text-slate-400">
+                <span class="font-mono font-semibold text-pink-600 dark:text-neon">HUB</span>
+                <span>•</span>
+                <span x-text="(teamHubBoard()?.card_count || 0) + ' cartões'"></span>
+              </span>
+            </span>
+            <span x-show="isBoardStarred(teamHubBoard()?.id)" title="Favorito" class="text-amber-400 shrink-0">
+              <i data-lucide="star" class="w-3.5 h-3.5 fill-amber-400"></i>
+            </span>
+          </button>
+        </div>
+
+        <div class="px-3 pt-3 pb-2 flex items-center justify-between">
+          <div class="flex items-center gap-2 font-semibold text-ink dark:text-white">
+            <i data-lucide="folder-kanban" class="w-4 h-4 text-sky-600 dark:text-neon"></i>
+            Quadros do Workspace
+          </div>
+          <span class="text-[12px] font-mono text-ink-faint dark:text-slate-500" x-text="productBoards().length"></span>
+        </div>
+
+        <div class="flex-1 overflow-y-auto px-2 pb-2 space-y-1">
+          <template x-for="b in productBoards()" :key="b.id">
+            <button
+              @click="selectBoard(b.id)"
+              :class="activeBoard && activeBoard.id === b.id
+                ? 'bg-white dark:bg-slate-800 shadow-sm ring-1 ring-sky-200 dark:ring-neon/40'
+                : 'hover:bg-white/70 dark:hover:bg-slate-800/60'"
+              class="w-full text-left p-2 rounded-lg transition flex items-center gap-2.5"
+            >
+              <span class="w-9 h-7 rounded-md shrink-0 shadow-inner" :style="boardBgStyle(b)"></span>
+              <span class="min-w-0 flex-1">
+                <span class="block text-[13px] font-medium text-ink dark:text-slate-100 truncate" x-text="b.name"></span>
+                <span class="flex items-center gap-1.5 text-[11px] text-ink-faint dark:text-slate-400">
+                  <span class="font-mono font-semibold" x-text="b.prefix_key"></span>
+                  <span>•</span>
+                  <span x-text="b.card_count + ' cartões'"></span>
+                </span>
+              </span>
+              <span x-show="isBoardStarred(b.id)" title="Favorito" class="text-amber-400 shrink-0">
+                <i data-lucide="star" class="w-3.5 h-3.5 fill-amber-400"></i>
+              </span>
+              <span x-show="b.wip_alerts_count > 0" title="WIP excedido" class="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0"></span>
+            </button>
+          </template>
+        </div>
+
+        <!-- Modos de visão -->
+        <div class="p-2 border-t border-sky-100 dark:border-hubborder">
+          <p class="px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-faint dark:text-slate-500">Modos de Visão</p>
+          <div class="grid grid-cols-2 gap-1 p-1 rounded-lg bg-white/70 dark:bg-hubbg border border-sky-100 dark:border-hubborder">
+            <button @click="switchView('kanban')"
+              :class="viewMode === 'kanban' ? 'bg-sky-600 dark:bg-neon text-white dark:text-slate-950 shadow-sm' : 'text-ink-soft dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-slate-800'"
+              class="flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[12px] font-semibold transition">
+              <i data-lucide="kanban" class="w-3.5 h-3.5"></i> Quadro
+            </button>
+            <button @click="switchView('metrics')"
+              :class="viewMode === 'metrics' ? 'bg-sky-600 dark:bg-neon text-white dark:text-slate-950 shadow-sm' : 'text-ink-soft dark:text-slate-300 hover:bg-sky-50 dark:hover:bg-slate-800'"
+              class="flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[12px] font-semibold transition">
+              <i data-lucide="bar-chart-3" class="w-3.5 h-3.5"></i> Métricas
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ===== ÁREA DO QUADRO ===== -->
+      <section class="relative flex-1 min-w-0 rounded-xl overflow-hidden flex flex-col"
+        :style="boardBgStyle(activeBoard)">
+        <!-- Escurecimento suave para legibilidade sobre fotos ou modo escuro -->
+        <div class="absolute inset-0 pointer-events-none"
+          :class="isImageBackground(boardGradient(activeBoard)) ? 'bg-black/20 dark:bg-black/50' : 'bg-transparent dark:bg-black/45'"></div>
+
+        <!-- Cabeçalho do quadro -->
+        <div class="relative z-30 h-12 shrink-0 px-4 flex items-center justify-between gap-3 bg-black/25 backdrop-blur-sm text-white">
+          <div class="flex items-center gap-2 min-w-0">
+            <h1 class="text-[17px] font-bold truncate" x-text="activeBoard ? activeBoard.name : 'Carregando...'"></h1>
+            <span x-show="isTeamHubActive()" class="text-[11px] font-semibold px-2 py-0.5 rounded bg-white/25 text-white shrink-0">Central da Equipe</span>
+            <span x-show="activeBoard" class="font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded bg-white/20 shrink-0" x-text="activeBoard?.prefix_key"></span>
+
+            <!-- Seletor de Visualizações (estilo anexo: Quadro, Tabela, Calendário, Painel, Cronograma, Mapa) -->
+            <div class="relative shrink-0">
+              <button
+                @click="toggleViewsMenu()"
+                title="Visualizações do quadro"
+                class="h-8 px-2.5 rounded-md bg-white/20 hover:bg-white/30 text-white flex items-center gap-1.5 text-[13px] font-semibold transition"
+              >
+                <i x-show="viewMode === 'kanban'" data-lucide="kanban-square" class="w-4 h-4"></i>
+                <i x-show="viewMode === 'table'" data-lucide="table-2" class="w-4 h-4"></i>
+                <i x-show="viewMode === 'calendar'" data-lucide="calendar" class="w-4 h-4"></i>
+                <i x-show="viewMode === 'dashboard'" data-lucide="gauge" class="w-4 h-4"></i>
+                <i x-show="viewMode === 'timeline'" data-lucide="gantt-chart" class="w-4 h-4"></i>
+                <i x-show="viewMode === 'map'" data-lucide="map-pin" class="w-4 h-4"></i>
+                <i x-show="viewMode === 'metrics'" data-lucide="bar-chart-3" class="w-4 h-4"></i>
+                <span class="hidden md:inline" x-text="viewLabel(viewMode)"></span>
+                <i data-lucide="chevron-down" class="w-3.5 h-3.5 opacity-90"></i>
+              </button>
+
+              <!-- Dropdown Visualizações -->
+              <div
+                x-cloak
+                x-show="viewsMenuOpen"
+                @click.outside="viewsMenuOpen = false"
+                @keydown.escape.window="viewsMenuOpen = false"
+                x-transition
+                class="absolute left-0 mt-2 w-60 rounded-xl bg-white dark:bg-hubpanel border border-slate-200 dark:border-hubborder shadow-2xl z-50 text-ink dark:text-slate-100 overflow-hidden"
+              >
+                <div class="h-10 px-3 border-b border-slate-200 dark:border-hubborder flex items-center justify-between">
+                  <div class="w-6"></div>
+                  <span class="text-[13px] font-semibold text-ink dark:text-white">Visualizações</span>
+                  <button @click="viewsMenuOpen = false" class="w-6 h-6 rounded hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-ink-soft">
+                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                  </button>
+                </div>
+                <div class="p-1.5 space-y-0.5">
+                  <button @click="selectView('kanban')"
+                    :class="viewMode === 'kanban' ? 'bg-sky-50 dark:bg-neon/15 text-sky-700 dark:text-neon font-semibold' : 'hover:bg-slate-100 dark:hover:bg-slate-800'"
+                    class="w-full px-3 py-2 rounded-lg flex items-center justify-between text-[13px] transition">
+                    <span class="flex items-center gap-2.5"><i data-lucide="kanban-square" class="w-4 h-4"></i> Quadro</span>
+                    <i x-show="viewMode === 'kanban'" data-lucide="check" class="w-3.5 h-3.5"></i>
+                  </button>
+                  <button @click="selectView('table')"
+                    :class="viewMode === 'table' ? 'bg-sky-50 dark:bg-neon/15 text-sky-700 dark:text-neon font-semibold' : 'hover:bg-slate-100 dark:hover:bg-slate-800'"
+                    class="w-full px-3 py-2 rounded-lg flex items-center justify-between text-[13px] transition">
+                    <span class="flex items-center gap-2.5"><i data-lucide="table-2" class="w-4 h-4"></i> Tabela</span>
+                    <i x-show="viewMode === 'table'" data-lucide="check" class="w-3.5 h-3.5"></i>
+                  </button>
+                  <button @click="selectView('calendar')"
+                    :class="viewMode === 'calendar' ? 'bg-sky-50 dark:bg-neon/15 text-sky-700 dark:text-neon font-semibold' : 'hover:bg-slate-100 dark:hover:bg-slate-800'"
+                    class="w-full px-3 py-2 rounded-lg flex items-center justify-between text-[13px] transition">
+                    <span class="flex items-center gap-2.5"><i data-lucide="calendar" class="w-4 h-4"></i> Calendário</span>
+                    <i x-show="viewMode === 'calendar'" data-lucide="check" class="w-3.5 h-3.5"></i>
+                  </button>
+                  <button @click="selectView('dashboard')"
+                    :class="viewMode === 'dashboard' ? 'bg-sky-50 dark:bg-neon/15 text-sky-700 dark:text-neon font-semibold' : 'hover:bg-slate-100 dark:hover:bg-slate-800'"
+                    class="w-full px-3 py-2 rounded-lg flex items-center justify-between text-[13px] transition">
+                    <span class="flex items-center gap-2.5"><i data-lucide="gauge" class="w-4 h-4"></i> Painel</span>
+                    <i x-show="viewMode === 'dashboard'" data-lucide="check" class="w-3.5 h-3.5"></i>
+                  </button>
+                  <button @click="selectView('timeline')"
+                    :class="viewMode === 'timeline' ? 'bg-sky-50 dark:bg-neon/15 text-sky-700 dark:text-neon font-semibold' : 'hover:bg-slate-100 dark:hover:bg-slate-800'"
+                    class="w-full px-3 py-2 rounded-lg flex items-center justify-between text-[13px] transition">
+                    <span class="flex items-center gap-2.5"><i data-lucide="gantt-chart" class="w-4 h-4"></i> Cronograma</span>
+                    <i x-show="viewMode === 'timeline'" data-lucide="check" class="w-3.5 h-3.5"></i>
+                  </button>
+                  <button @click="selectView('map')"
+                    :class="viewMode === 'map' ? 'bg-sky-50 dark:bg-neon/15 text-sky-700 dark:text-neon font-semibold' : 'hover:bg-slate-100 dark:hover:bg-slate-800'"
+                    class="w-full px-3 py-2 rounded-lg flex items-center justify-between text-[13px] transition">
+                    <span class="flex items-center gap-2.5"><i data-lucide="map-pin" class="w-4 h-4"></i> Mapa</span>
+                    <i x-show="viewMode === 'map'" data-lucide="check" class="w-3.5 h-3.5"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 shrink-0">
+            <!-- Membros compartilhados + Botão Compartilhar -->
+            <button @click="openShareModal()" title="Gerenciar compartilhamento" class="flex -space-x-1.5 hover:opacity-90 transition">
+              <template x-for="m in boardMembers().slice(0, 5)" :key="m">
+                <span class="w-7 h-7 rounded-full ring-2 ring-white/70 text-[11px] font-bold flex items-center justify-center text-white"
+                  :style="`background-color: ${avatarColor(m)}`" :title="m" x-text="initials(m)"></span>
+              </template>
+              <span x-show="boardMembers().length > 5" class="w-7 h-7 rounded-full ring-2 ring-white/70 bg-black/45 text-[10px] font-bold flex items-center justify-center text-white"
+                x-text="'+' + (boardMembers().length - 5)"></span>
+            </button>
+
+            <button @click="openShareModal()"
+              class="h-8 px-2.5 rounded-md text-[13px] font-semibold bg-white/20 hover:bg-white/30 text-white flex items-center gap-1.5 transition">
+              <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
+              <span class="hidden sm:inline">Compartilhar</span>
+            </button>
+
+            <!-- Filtro prioridade -->
+            <div class="relative">
+              <i data-lucide="filter" class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+              <select x-model="priorityFilter"
+                class="h-8 pl-8 pr-2 rounded-md text-[13px] font-medium bg-white/20 hover:bg-white/30 text-white border-0 focus:outline-none focus:ring-2 focus:ring-white/60 cursor-pointer">
+                <option class="text-ink" value="all">Todas prioridades</option>
+                <option class="text-ink" value="critica">Crítica</option>
+                <option class="text-ink" value="alta">Alta</option>
+                <option class="text-ink" value="media">Média</option>
+                <option class="text-ink" value="baixa">Baixa</option>
+              </select>
+            </div>
+
+            <button @click="toggleBoardStar()" :title="isBoardStarred(activeBoard?.id) ? 'Remover estrela' : 'Marcar com estrela'"
+              class="w-8 h-8 rounded-md flex items-center justify-center bg-white/15 hover:bg-white/25 transition">
+              <i data-lucide="star" class="w-4 h-4" :class="isBoardStarred(activeBoard?.id) ? 'text-amber-300 fill-amber-300' : 'text-white'"></i>
+            </button>
+
+            <button @click="openNewCardModal()"
+              class="h-8 px-3 rounded-md text-[13px] font-semibold bg-white/90 hover:bg-white text-ink flex items-center gap-1.5 transition">
+              <i data-lucide="plus" class="w-4 h-4"></i> Novo Card
+            </button>
+
+            <!-- Botão Menu (...) -->
+            <button @click="menuOpen ? closeMenu() : openMenu('main')" title="Abrir menu do quadro"
+              :class="menuOpen ? 'bg-white text-ink' : 'bg-white/15 hover:bg-white/25 text-white'"
+              class="w-8 h-8 rounded-md flex items-center justify-center transition">
+              <i data-lucide="more-horizontal" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Barra de Alerta Global de WIP -->
+        <div x-cloak x-show="activeBoard && activeBoard.wip_alerts && activeBoard.wip_alerts.length > 0"
+          class="relative z-10 shrink-0 px-4 py-1.5 flex items-center gap-2 flex-wrap text-[12px] text-white bg-red-600/90 dark:bg-red-700/80">
+          <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+          <span class="font-semibold">Alerta de WIP:</span>
+          <span>limite excedido em</span>
+          <template x-for="alert in (activeBoard?.wip_alerts || [])" :key="alert.column_id">
+            <span class="px-1.5 py-0.5 rounded bg-white/20 font-semibold">
+              <span x-text="alert.column_name"></span>
+              <span class="font-mono" x-text="` ${alert.current_count}/${alert.wip_limit}`"></span>
+            </span>
+          </template>
+          <button @click="switchView('metrics')" x-show="viewMode === 'kanban'" class="ml-auto underline underline-offset-2 hover:text-white/80">Ver saúde do fluxo</button>
+        </div>
+
+        <!-- ========== VISÃO KANBAN ========== -->
+        <div x-show="viewMode === 'kanban'" @mousedown="startPan($event)"
+          class="board-scroller relative z-10 flex-1 min-h-0 overflow-x-auto overflow-y-hidden">
+          <div x-show="loading" class="h-full flex items-center justify-center text-white gap-2">
+            <span class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+            Carregando quadro...
+          </div>
+
+          <div x-show="!loading && activeBoard" class="kanban-columns-container h-full flex items-start gap-3 p-3 pb-20 w-max">
+            <template x-for="column in (activeBoard?.columns || [])" :key="column.id">
+              <!-- LISTA -->
+              <div :data-column-id="column.id" class="kanban-list w-[272px] shrink-0 max-h-full flex flex-col rounded-xl shadow-sm"
+                :class="column.wip_exceeded ? 'ring-2 ring-red-500' : ''">
+
+                <!-- Cabeçalho da lista (alça para arrastar a coluna inteira) -->
+                <div class="kanban-list-header flex items-center gap-2 pl-3 pr-1.5 pt-2 pb-1 cursor-grab active:cursor-grabbing select-none" title="Arraste para mover esta lista">
+                  <span class="w-2 h-2 rounded-full shrink-0" :style="`background-color: ${column.color}`"></span>
+                  <h2 class="flex-1 min-w-0 text-[14px] font-semibold text-ink dark:text-slate-100 truncate py-1" x-text="column.name"></h2>
+                  <span class="text-[12px] font-semibold px-1.5 rounded"
+                    :class="column.wip_exceeded ? 'bg-red-500 text-white' : 'text-ink-soft dark:text-slate-400'"
+                    :title="column.wip_limit ? 'Cartões / Limite WIP' : 'Cartões'">
+                    <span x-text="filteredCards(column).length"></span><template x-if="column.wip_limit"><span x-text="' / ' + column.wip_limit"></span></template>
+                  </span>
+                  <button @click="editColumnWip(column)" title="Configurar limite WIP"
+                    class="no-drag w-8 h-8 rounded-lg flex items-center justify-center text-ink-soft dark:text-slate-400 hover:bg-slate-300/60 dark:hover:bg-slate-700/70 transition">
+                    <i data-lucide="more-horizontal" class="w-4 h-4"></i>
+                  </button>
+                </div>
+
+                <!-- Cartões (SortableJS) -->
+                <div class="kanban-column-list flex-1 overflow-y-auto overflow-x-hidden px-2 pt-0.5 pb-2 flex flex-col gap-2 min-h-[84px]"
+                  data-drop-type="column" :data-column-id="column.id">
+                  <template x-for="card in filteredCards(column)" :key="card.id">
+                    <!-- CARTÃO -->
+                    <article :data-card-id="card.id" @click="onCardClick(card)"
+                      :class="compactCards ? 'px-2.5 py-1.5' : 'px-3 pt-2 pb-2'"
+                      class="kanban-card group relative rounded-lg cursor-grab active:cursor-grabbing select-none">
+
+                      <!-- Lápis (hover) -->
+                      <button type="button" title="Editar cartão" @click.stop="openCardDetail(card, true)"
+                        class="no-drag absolute top-1 right-1 w-7 h-7 rounded-full flex items-center justify-center bg-white/95 dark:bg-slate-700 text-ink-soft dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-600 opacity-0 group-hover:opacity-100 transition">
+                        <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+                      </button>
+
+                      <!-- Etiquetas -->
+                      <div class="flex flex-wrap gap-1 mb-1.5 pr-6">
+                        <span class="inline-flex items-center gap-1 h-4 px-1.5 rounded text-[11px] font-semibold leading-4"
+                          :style="`background-color: ${priorityColor(card.priority)}; color: ${labelTextColor(priorityColor(card.priority))}`">
+                          <i data-lucide="flag" class="w-2.5 h-2.5"></i>
+                          <span x-text="priorityLabel(card.priority)"></span>
+                        </span>
+                        <template x-for="label in card.labels" :key="label.id">
+                          <span class="h-4 px-1.5 rounded text-[11px] font-semibold leading-4"
+                            :style="`background-color: ${label.color}; color: ${labelTextColor(label.color)}`"
+                            x-text="label.name"></span>
+                        </template>
+                      </div>
+
+                      <!-- Título -->
+                      <p class="text-[14px] leading-5 text-ink dark:text-slate-100 break-words pr-4" x-text="card.title"></p>
+
+                      <!-- Badges -->
+                      <div class="mt-1.5 flex items-center flex-wrap gap-x-2.5 gap-y-1 text-[12px] text-ink-soft dark:text-slate-400">
+                        <span x-show="showCardCodes" class="font-mono text-[11px] font-semibold text-sky-700 dark:text-neon" x-text="card.code"></span>
+
+                        <span x-show="card.is_blocked" class="inline-flex items-center gap-1 px-1 rounded bg-red-600 text-white font-semibold text-[11px]">
+                          <i data-lucide="ban" class="w-3 h-3"></i> Bloqueado
+                        </span>
+
+                        <span x-show="card.description" title="Este cartão possui descrição" class="inline-flex">
+                          <i data-lucide="align-left" class="w-3.5 h-3.5"></i>
+                        </span>
+
+                        <span x-show="card.subtasks && card.subtasks.length > 0"
+                          class="inline-flex items-center gap-1 px-1 rounded"
+                          :class="completedSubtasksCount(card) === card.subtasks.length ? 'bg-emerald-600 text-white' : ''">
+                          <i data-lucide="check-square" class="w-3.5 h-3.5"></i>
+                          <span x-text="`${completedSubtasksCount(card)}/${card.subtasks.length}`"></span>
+                        </span>
+
+                        <span x-show="card.story_points !== null && card.story_points !== undefined"
+                          class="inline-flex items-center gap-0.5" title="Story Points">
+                          <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+                          <span x-text="card.story_points"></span>
+                        </span>
+
+                        <span x-show="card.assignee" class="ml-auto w-6 h-6 rounded-full text-[10px] font-bold flex items-center justify-center text-white"
+                          :style="`background-color: ${avatarColor(card.assignee)}`" :title="card.assignee" x-text="initials(card.assignee)"></span>
+                      </div>
+                    </article>
+                  </template>
+                </div>
+
+                <!-- Rodapé: adicionar cartão -->
+                <div class="px-2 pb-2 pt-1">
+                  <template x-if="quickAddColumnId !== column.id">
+                    <div class="flex items-center gap-1">
+                      <button @click="openQuickAdd(column.id)"
+                        class="flex-1 h-8 px-2 rounded-lg flex items-center gap-1.5 text-[14px] font-medium text-ink-soft dark:text-slate-300 hover:bg-slate-300/60 dark:hover:bg-slate-700/70 transition text-left">
+                        <i data-lucide="plus" class="w-4 h-4"></i> Adicionar um cartão
+                      </button>
+                      <button @click="openNewCardModal(column.id)" title="Criar cartão detalhado"
+                        class="w-8 h-8 rounded-lg flex items-center justify-center text-ink-soft dark:text-slate-400 hover:bg-slate-300/60 dark:hover:bg-slate-700/70 transition">
+                        <i data-lucide="square-pen" class="w-4 h-4"></i>
+                      </button>
+                    </div>
+                  </template>
+                  <template x-if="quickAddColumnId === column.id">
+                    <form @submit.prevent="submitQuickAdd(column)" class="space-y-2">
+                      <textarea :id="`quick-add-${column.id}`" x-model="quickAddTitle" rows="2"
+                        @keydown.enter.prevent="submitQuickAdd(column)" @keydown.escape="closeQuickAdd()"
+                        placeholder="Insira um título para este cartão..."
+                        class="kanban-card w-full rounded-lg px-3 py-2 text-[14px] resize-none text-ink dark:text-slate-100 placeholder-ink-faint dark:placeholder-slate-500 focus:outline-none"></textarea>
+                      <div class="flex items-center gap-1.5">
+                        <button type="submit" class="h-8 px-3 rounded-md text-[14px] font-semibold bg-sky-600 hover:bg-sky-700 dark:bg-neon dark:hover:brightness-110 text-white dark:text-slate-950 transition">
+                          Adicionar cartão
+                        </button>
+                        <button type="button" @click="closeQuickAdd()" class="w-8 h-8 rounded-md flex items-center justify-center text-ink-soft dark:text-slate-300 hover:bg-slate-300/60 dark:hover:bg-slate-700/70">
+                          <i data-lucide="x" class="w-4 h-4"></i>
+                        </button>
+                      </div>
+                    </form>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- ========== VISÃO PAINEL (4 GRÁFICOS — ESTILO ANEXO) ========== -->
+        <div x-cloak x-show="viewMode === 'dashboard'" class="relative z-10 flex-1 min-h-0 overflow-y-auto bg-slate-100/95 dark:bg-hubbg/95 p-5 pb-24">
+          <div class="max-w-7xl mx-auto">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h2 class="text-[16px] font-bold text-ink dark:text-white">Painel do Quadro — <span x-text="activeBoard?.name"></span></h2>
+                <p class="text-[12px] text-ink-faint dark:text-slate-400">Visão analítica de cartões por lista, data de entrega, membro e etiqueta</p>
+              </div>
+              <button @click="selectView('kanban')" title="Voltar ao Quadro"
+                class="w-8 h-8 rounded-lg bg-white dark:bg-hubpanel border border-slate-200 dark:border-hubborder hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center text-ink-soft dark:text-slate-300 transition">
+                <i data-lucide="x" class="w-4 h-4"></i>
+              </button>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <!-- Gráfico 1: Cartões por lista -->
+              <div class="rounded-xl bg-white dark:bg-hubpanel border border-slate-200 dark:border-hubborder p-5 shadow-sm">
+                <h3 class="text-[14px] font-semibold text-ink dark:text-white mb-5">Cartões por lista</h3>
+                <div class="h-56 flex items-end gap-3 pt-4 pb-2 border-b border-slate-200 dark:border-hubborder">
+                  <template x-for="item in dashboardByColumn()" :key="item.name">
+                    <div class="flex-1 min-w-0 h-full flex flex-col items-center justify-end gap-1.5 group">
+                      <span class="text-[11px] font-semibold text-ink-soft dark:text-slate-300" x-text="item.count"></span>
+                      <div class="w-full max-w-[44px] rounded-t-md bg-slate-800 dark:bg-neon/80 group-hover:brightness-110 transition-all duration-300"
+                        :style="`height: ${Math.max(item.pct, item.count > 0 ? 8 : 2)}%;`"></div>
+                    </div>
+                  </template>
+                </div>
+                <div class="flex gap-3 pt-2">
+                  <template x-for="item in dashboardByColumn()" :key="item.name + '-lbl'">
+                    <span class="flex-1 min-w-0 text-[11px] text-ink-faint dark:text-slate-400 text-center truncate" :title="item.name" x-text="item.name"></span>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Gráfico 2: Cartões por data de entrega -->
+              <div class="rounded-xl bg-white dark:bg-hubpanel border border-slate-200 dark:border-hubborder p-5 shadow-sm">
+                <h3 class="text-[14px] font-semibold text-ink dark:text-white mb-5">Cartões por data de entrega</h3>
+                <div class="h-56 flex items-end gap-4 pt-4 pb-2 border-b border-slate-200 dark:border-hubborder">
+                  <template x-for="b in dashboardByDueDate()" :key="b.key">
+                    <div class="flex-1 min-w-0 h-full flex flex-col items-center justify-end gap-1.5 group">
+                      <span class="text-[11px] font-semibold text-ink-soft dark:text-slate-300" x-text="b.count"></span>
+                      <div class="w-full max-w-[52px] rounded-t-md group-hover:brightness-110 transition-all duration-300"
+                        :style="`height: ${Math.max(b.pct, b.count > 0 ? 8 : 2)}%; background-color: ${b.color};`"></div>
+                    </div>
+                  </template>
+                </div>
+                <div class="flex gap-4 pt-2">
+                  <template x-for="b in dashboardByDueDate()" :key="b.key + '-lbl'">
+                    <span class="flex-1 min-w-0 text-[11px] text-ink-faint dark:text-slate-400 text-center truncate" :title="b.label" x-text="b.label"></span>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Gráfico 3: Cartões por membro -->
+              <div class="rounded-xl bg-white dark:bg-hubpanel border border-slate-200 dark:border-hubborder p-5 shadow-sm">
+                <h3 class="text-[14px] font-semibold text-ink dark:text-white mb-5">Cartões por membro</h3>
+                <div class="h-56 flex items-end gap-3 pt-4 pb-2 border-b border-slate-200 dark:border-hubborder">
+                  <template x-for="m in dashboardByMember()" :key="m.name">
+                    <div class="flex-1 min-w-0 h-full flex flex-col items-center justify-end gap-1.5 group">
+                      <span class="text-[11px] font-semibold text-ink-soft dark:text-slate-300" x-text="m.count"></span>
+                      <div class="w-full max-w-[48px] rounded-t-md bg-slate-800 dark:bg-sky-400 group-hover:brightness-110 transition-all duration-300"
+                        :style="`height: ${Math.max(m.pct, m.count > 0 ? 8 : 2)}%;`"></div>
+                    </div>
+                  </template>
+                </div>
+                <div class="flex gap-3 pt-2">
+                  <template x-for="m in dashboardByMember()" :key="m.name + '-lbl'">
+                    <span class="flex-1 min-w-0 text-[11px] text-ink-faint dark:text-slate-400 text-center truncate" :title="m.name" x-text="m.name"></span>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Gráfico 4: Cartões por etiqueta -->
+              <div class="rounded-xl bg-white dark:bg-hubpanel border border-slate-200 dark:border-hubborder p-5 shadow-sm">
+                <h3 class="text-[14px] font-semibold text-ink dark:text-white mb-5">Cartões por etiqueta</h3>
+                <div class="h-56 flex items-end gap-4 pt-4 pb-2 border-b border-slate-200 dark:border-hubborder">
+                  <template x-for="lbl in dashboardByLabel()" :key="lbl.name">
+                    <div class="flex-1 min-w-0 h-full flex flex-col items-center justify-end gap-1.5 group">
+                      <span class="text-[11px] font-semibold text-ink-soft dark:text-slate-300" x-text="lbl.count"></span>
+                      <div class="w-full max-w-[56px] rounded-t-md group-hover:brightness-110 transition-all duration-300"
+                        :style="`height: ${Math.max(lbl.pct, lbl.count > 0 ? 8 : 2)}%; background-color: ${lbl.color};`"></div>
+                    </div>
+                  </template>
+                </div>
+                <div class="flex gap-4 pt-2">
+                  <template x-for="lbl in dashboardByLabel()" :key="lbl.name + '-lbl'">
+                    <span class="flex-1 min-w-0 text-[11px] text-ink-faint dark:text-slate-400 text-center truncate" :title="lbl.name" x-text="lbl.name"></span>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== VISÃO TABELA ========== -->
+        <div x-cloak x-show="viewMode === 'table'" class="relative z-10 flex-1 min-h-0 overflow-auto bg-white/95 dark:bg-hubbg/95 p-5 pb-24">
+          <div class="max-w-7xl mx-auto">
+            <div class="flex items-center justify-between mb-3">
+              <h2 class="text-[15px] font-bold text-ink dark:text-white">Tabela de Cartões (<span x-text="sortedTableCards().length"></span>)</h2>
+              <button @click="selectView('kanban')" class="h-8 px-3 rounded-lg text-[12px] font-medium bg-slate-100 dark:bg-hubpanel hover:bg-slate-200 dark:hover:bg-slate-800 text-ink dark:text-slate-200">Voltar ao Quadro</button>
+            </div>
+            <div class="rounded-xl border border-slate-200 dark:border-hubborder overflow-x-auto bg-white dark:bg-hubpanel shadow-sm">
+              <table class="w-full text-left border-collapse text-[13px]">
+                <thead>
+                  <tr class="border-b border-slate-200 dark:border-hubborder bg-slate-50 dark:bg-hubbg text-[11px] font-semibold uppercase tracking-wider text-ink-faint dark:text-slate-400">
+                    <th @click="toggleTableSort('title')" class="py-2.5 px-3 cursor-pointer hover:text-ink dark:hover:text-white">Cartão</th>
+                    <th @click="toggleTableSort('column')" class="py-2.5 px-3 cursor-pointer hover:text-ink dark:hover:text-white">Lista</th>
+                    <th class="py-2.5 px-3">Etiquetas</th>
+                    <th class="py-2.5 px-3">Membro</th>
+                    <th @click="toggleTableSort('priority')" class="py-2.5 px-3 cursor-pointer hover:text-ink dark:hover:text-white">Prioridade</th>
+                    <th @click="toggleTableSort('due')" class="py-2.5 px-3 cursor-pointer hover:text-ink dark:hover:text-white">Data de entrega</th>
+                    <th @click="toggleTableSort('points')" class="py-2.5 px-3 cursor-pointer hover:text-ink dark:hover:text-white text-right">Pts</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 dark:divide-hubborder">
+                  <template x-for="card in sortedTableCards()" :key="card.id">
+                    <tr class="hover:bg-sky-50/50 dark:hover:bg-slate-800/50 transition">
+                      <td class="py-2.5 px-3">
+                        <button @click="openCardDetail(card)" class="text-left hover:text-sky-600 dark:hover:text-neon font-medium text-ink dark:text-slate-100 flex items-center gap-2">
+                          <span class="font-mono text-[11px] font-semibold text-sky-700 dark:text-neon shrink-0" x-text="card.code"></span>
+                          <span class="truncate max-w-xs" x-text="card.title"></span>
+                        </button>
+                      </td>
+                      <td class="py-2.5 px-3">
+                        <select :value="card.column_id" @change="moveCard(card.id, Number($event.target.value))"
+                          class="h-7 px-2 text-[12px] rounded-md bg-slate-100 dark:bg-hubbg border border-slate-200 dark:border-hubborder text-ink dark:text-slate-200">
+                          <template x-for="c in (activeBoard?.columns || [])" :key="c.id">
+                            <option :value="c.id" :selected="c.id === card.column_id" x-text="c.name"></option>
+                          </template>
+                        </select>
+                      </td>
+                      <td class="py-2.5 px-3">
+                        <div class="flex flex-wrap gap-1">
+                          <template x-for="lbl in (card.labels || [])" :key="lbl.id">
+                            <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold" :style="`background-color: ${lbl.color}; color: ${labelTextColor(lbl.color)}`" x-text="lbl.name"></span>
+                          </template>
+                        </div>
+                      </td>
+                      <td class="py-2.5 px-3">
+                        <div x-show="card.assignee" class="flex items-center gap-1.5">
+                          <span class="w-5 h-5 rounded-full text-[9px] font-bold flex items-center justify-center text-white" :style="`background-color: ${avatarColor(card.assignee)}`" x-text="initials(card.assignee)"></span>
+                          <span class="text-[12px] text-ink-soft dark:text-slate-300 truncate max-w-[120px]" x-text="card.assignee"></span>
+                        </div>
+                        <span x-show="!card.assignee" class="text-[12px] text-ink-faint">—</span>
+                      </td>
+                      <td class="py-2.5 px-3">
+                        <span class="inline-flex items-center h-5 px-1.5 rounded text-[11px] font-semibold" :style="`background-color: ${priorityColor(card.priority)}; color: ${labelTextColor(priorityColor(card.priority))}`" x-text="priorityLabel(card.priority)"></span>
+                      </td>
+                      <td class="py-2.5 px-3">
+                        <input type="date" :value="card._meta.dueDate || ''" @change="setCardDueDate(card.id, $event.target.value)"
+                          class="h-7 px-2 text-[12px] rounded-md bg-slate-50 dark:bg-hubbg border border-slate-200 dark:border-hubborder text-ink dark:text-slate-200" />
+                      </td>
+                      <td class="py-2.5 px-3 text-right font-mono text-[12px] text-ink-soft dark:text-slate-300" x-text="card.story_points ?? '—'"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== VISÃO CALENDÁRIO ========== -->
+        <div x-cloak x-show="viewMode === 'calendar'" class="relative z-10 flex-1 min-h-0 overflow-y-auto bg-white/95 dark:bg-hubbg/95 p-5 pb-24">
+          <div class="max-w-7xl mx-auto space-y-4">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="flex items-center gap-2">
+                <h2 class="text-[16px] font-bold text-ink dark:text-white" x-text="calendarMonthTitle()"></h2>
+                <button @click="calendarMonthOffset--" class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-hubpanel hover:bg-slate-200 dark:hover:bg-slate-800 flex items-center justify-center"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+                <button @click="calendarMonthOffset = 0" class="h-8 px-3 rounded-lg text-[12px] font-semibold bg-slate-100 dark:bg-hubpanel hover:bg-slate-200 dark:hover:bg-slate-800">Hoje</button>
+                <button @click="calendarMonthOffset++" class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-hubpanel hover:bg-slate-200 dark:hover:bg-slate-800 flex items-center justify-center"><i data-lucide="chevron-right" class="w-4 h-4"></i></button>
+              </div>
+              <button @click="selectView('kanban')" class="h-8 px-3 rounded-lg text-[12px] font-medium bg-slate-100 dark:bg-hubpanel hover:bg-slate-200 dark:hover:bg-slate-800">Voltar ao Quadro</button>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 dark:border-hubborder overflow-hidden bg-white dark:bg-hubpanel shadow-sm">
+              <div class="grid grid-cols-7 border-b border-slate-200 dark:border-hubborder bg-slate-50 dark:bg-hubbg text-[11px] font-semibold uppercase text-ink-faint dark:text-slate-400">
+                <div class="py-2 text-center">Dom</div><div class="py-2 text-center">Seg</div><div class="py-2 text-center">Ter</div>
+                <div class="py-2 text-center">Qua</div><div class="py-2 text-center">Qui</div><div class="py-2 text-center">Sex</div><div class="py-2 text-center">Sáb</div>
+              </div>
+              <div class="grid grid-cols-7 auto-rows-[minmax(104px,auto)] divide-x divide-y divide-slate-200/80 dark:divide-hubborder">
+                <template x-for="cell in calendarGridDays()" :key="cell.key">
+                  <div class="p-1.5" :class="cell.empty ? 'bg-slate-50/70 dark:bg-hubbg/40' : ''">
+                    <template x-if="!cell.empty">
+                      <div class="h-full flex flex-col gap-1">
+                        <span class="inline-flex w-6 h-6 items-center justify-center rounded-full text-[12px] font-semibold"
+                          :class="cell.isToday ? 'bg-sky-600 dark:bg-neon text-white dark:text-slate-950' : 'text-ink-soft dark:text-slate-300'"
+                          x-text="cell.day"></span>
+                        <div class="space-y-1">
+                          <template x-for="c in cardsForDate(cell.iso)" :key="c.id">
+                            <button @click="openCardDetail(c)"
+                              class="w-full text-left px-1.5 py-1 rounded text-[11px] font-medium truncate text-white hover:brightness-110 transition"
+                              :style="`background-color: ${c._column.color}`"
+                              :title="`${c.code}: ${c.title}`"
+                              x-text="`${c.code} ${c.title}`"></button>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- Cartões sem data -->
+            <div x-show="cardsWithoutDate().length > 0" class="rounded-xl border border-slate-200 dark:border-hubborder bg-white dark:bg-hubpanel p-4">
+              <h3 class="text-[12px] font-semibold uppercase tracking-wider text-ink-faint dark:text-slate-400 mb-2">Sem data de entrega (<span x-text="cardsWithoutDate().length"></span>) — defina uma data para aparecer no calendário</h3>
+              <div class="flex flex-wrap gap-2">
+                <template x-for="c in cardsWithoutDate()" :key="c.id">
+                  <div class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-hubbg border border-slate-200 dark:border-hubborder text-[12px]">
+                    <span class="font-mono font-semibold text-sky-700 dark:text-neon" x-text="c.code"></span>
+                    <span class="truncate max-w-[180px]" x-text="c.title"></span>
+                    <input type="date" @change="setCardDueDate(c.id, $event.target.value)" class="h-6 px-1 text-[11px] rounded bg-white dark:bg-hubpanel border border-slate-300 dark:border-hubborder" />
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== VISÃO CRONOGRAMA (GANTT) ========== -->
+        <div x-cloak x-show="viewMode === 'timeline'" class="relative z-10 flex-1 min-h-0 overflow-auto bg-white/95 dark:bg-hubbg/95 p-5 pb-24">
+          <div class="max-w-7xl mx-auto space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <h2 class="text-[16px] font-bold text-ink dark:text-white">Cronograma (Linha do Tempo — 14 dias)</h2>
+                <p class="text-[12px] text-ink-faint dark:text-slate-400">Visualize a distribuição temporal dos cartões agrupados por lista</p>
+              </div>
+              <button @click="selectView('kanban')" class="h-8 px-3 rounded-lg text-[12px] font-medium bg-slate-100 dark:bg-hubpanel hover:bg-slate-200 dark:hover:bg-slate-800">Voltar ao Quadro</button>
+            </div>
+
+            <div class="rounded-xl border border-slate-200 dark:border-hubborder bg-white dark:bg-hubpanel overflow-x-auto shadow-sm">
+              <div class="min-w-[880px]">
+                <!-- Cabeçalho de dias -->
+                <div class="grid grid-cols-[200px_1fr] border-b border-slate-200 dark:border-hubborder bg-slate-50 dark:bg-hubbg">
+                  <div class="px-3 py-2 text-[11px] font-semibold uppercase text-ink-faint dark:text-slate-400">Lista / Cartão</div>
+                  <div class="grid grid-cols-14 divide-x divide-slate-200/70 dark:divide-hubborder" style="display:grid; grid-template-columns: repeat(14, minmax(0, 1fr));">
+                    <template x-for="d in timelineDays()" :key="d.iso">
+                      <div class="py-1.5 text-center text-[11px]" :class="d.isToday ? 'bg-sky-100 dark:bg-neon/20 text-sky-700 dark:text-neon font-bold' : 'text-ink-faint dark:text-slate-400'">
+                        <div x-text="d.wd"></div>
+                        <div x-text="d.day"></div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- Linhas por coluna -->
+                <template x-for="col in (activeBoard?.columns || [])" :key="col.id">
+                  <div class="border-b border-slate-200 dark:border-hubborder">
+                    <div class="px-3 py-1.5 bg-slate-50/70 dark:bg-hubbg/60 text-[12px] font-semibold flex items-center gap-2 text-ink dark:text-slate-200">
+                      <span class="w-2.5 h-2.5 rounded-full" :style="`background-color: ${col.color}`"></span>
+                      <span x-text="col.name"></span>
+                      <span class="text-[11px] font-normal text-ink-faint" x-text="`(${filteredCards(col).length})`"></span>
+                    </div>
+                    <template x-for="card in filteredCards(col)" :key="card.id">
+                      <div class="grid grid-cols-[200px_1fr] items-center border-t border-slate-100 dark:border-hubborder/60 hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                        <button @click="openCardDetail(card)" class="px-3 py-2 text-left text-[12px] truncate hover:text-sky-600 dark:hover:text-neon">
+                          <span class="font-mono font-semibold text-sky-700 dark:text-neon mr-1" x-text="card.code"></span>
+                          <span x-text="card.title"></span>
+                        </button>
+                        <div class="relative h-9 flex items-center">
+                          <button @click="openCardDetail(card)"
+                            class="absolute h-6 rounded-md px-2 text-[11px] font-semibold text-white truncate shadow-sm hover:brightness-110 transition"
+                            :style="timelineBarStyle({ ...card, _column: col, _meta: getCardMeta(card.id) })"
+                            x-text="card.title"></button>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== VISÃO MAPA ========== -->
+        <div x-cloak x-show="viewMode === 'map'" class="relative z-10 flex-1 min-h-0 overflow-y-auto bg-white/95 dark:bg-hubbg/95 p-5 pb-24">
+          <div class="max-w-7xl mx-auto space-y-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <h2 class="text-[16px] font-bold text-ink dark:text-white">Mapa de Operações &amp; Equipe HubUP</h2>
+                <p class="text-[12px] text-ink-faint dark:text-slate-400">Distribuição geográfica dos cartões e polos da equipe — clique em um marcador para filtrar</p>
+              </div>
+              <button @click="selectView('kanban')" class="h-8 px-3 rounded-lg text-[12px] font-medium bg-slate-100 dark:bg-hubpanel hover:bg-slate-200 dark:hover:bg-slate-800">Voltar ao Quadro</button>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <!-- Mapa Visual Interativo -->
+              <div class="lg:col-span-2 relative h-[440px] rounded-xl border border-slate-200 dark:border-hubborder overflow-hidden bg-gradient-to-br from-sky-100 via-blue-50 to-indigo-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-950 shadow-sm">
+                <!-- Grade estilizada de mapa -->
+                <svg class="absolute inset-0 w-full h-full opacity-35 dark:opacity-20" xmlns="http://www.w3.org/2000/svg">
+                  <defs>
+                    <pattern id="mapgrid" width="40" height="40" patternUnits="userSpaceOnUse">
+                      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="currentColor" stroke-width="0.7" class="text-sky-500" />
+                    </pattern>
+                  </defs>
+                  <rect width="100%" height="100%" fill="url(#mapgrid)" />
+                  <!-- Silhueta estilizada do Brasil -->
+                  <path d="M 280 55 L 440 85 L 555 150 L 535 235 L 455 320 L 380 390 L 325 360 L 305 285 L 220 225 L 210 135 Z"
+                    fill="rgba(14,165,233,0.16)" stroke="rgba(14,165,233,0.45)" stroke-width="2" />
+                </svg>
+
+                <!-- Marcadores interativos -->
+                <template x-for="loc in mapLocations" :key="loc.id">
+                  <button
+                    @click="selectedMapPin = (selectedMapPin === loc.id ? null : loc.id)"
+                    class="absolute -translate-x-1/2 -translate-y-1/2 group flex flex-col items-center transition transform hover:scale-110"
+                    :style="`left: ${loc.x}%; top: ${loc.y}%;`"
+                  >
+                    <span
+                      class="px-2.5 py-1 rounded-full text-[11px] font-bold text-white shadow-lg flex items-center gap-1.5 border-2 border-white dark:border-hubpanel"
+                      :class="selectedMapPin === loc.id ? 'ring-4 ring-sky-400/50 scale-110' : ''"
+                      :style="`background-color: ${loc.color}`"
+                    >
+                      <i data-lucide="map-pin" class="w-3 h-3"></i>
+                      <span x-text="loc.name.split('—')[0].trim()"></span>
+                      <span class="px-1.5 rounded-full bg-black/25 font-mono text-[10px]" x-text="cardsByLocation(loc.id).length"></span>
+                    </span>
+                  </button>
+                </template>
+              </div>
+
+              <!-- Lista lateral de Cartões por Localização -->
+              <div class="rounded-xl border border-slate-200 dark:border-hubborder bg-white dark:bg-hubpanel p-4 flex flex-col max-h-[440px]">
+                <div class="flex items-center justify-between mb-3">
+                  <h3 class="text-[13px] font-bold text-ink dark:text-white" x-text="selectedMapPin ? locationName(selectedMapPin) : 'Todos os cartões no mapa'"></h3>
+                  <button x-show="selectedMapPin" @click="selectedMapPin = null" class="text-[11px] text-sky-600 dark:text-neon hover:underline">Mostrar todos</button>
+                </div>
+                <div class="flex-1 overflow-y-auto space-y-2">
+                  <template x-for="card in (selectedMapPin ? cardsByLocation(selectedMapPin) : allFilteredBoardCards())" :key="card.id">
+                    <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-hubbg border border-slate-200 dark:border-hubborder space-y-1.5">
+                      <button @click="openCardDetail(card)" class="text-left block w-full hover:text-sky-600 dark:hover:text-neon">
+                        <span class="font-mono text-[11px] font-semibold text-sky-700 dark:text-neon mr-1" x-text="card.code"></span>
+                        <span class="text-[12px] font-medium" x-text="card.title"></span>
+                      </button>
+                      <select :value="card._meta.locationId || ''" @change="setCardLocation(card.id, $event.target.value)"
+                        class="w-full h-7 px-2 text-[11px] rounded bg-white dark:bg-hubpanel border border-slate-200 dark:border-hubborder text-ink-soft dark:text-slate-300">
+                        <option value="">Sem localização</option>
+                        <template x-for="loc in mapLocations" :key="loc.id">
+                          <option :value="loc.id" :selected="loc.id === card._meta.locationId" x-text="loc.name"></option>
+                        </template>
+                      </select>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== VISÃO MÉTRICAS & WIP ========== -->
+        <div x-cloak x-show="viewMode === 'metrics'" class="relative z-10 flex-1 min-h-0 overflow-y-auto p-4 pb-24">
+          <div x-show="!metrics" class="h-64 flex items-center justify-center text-white gap-2">
+            <span class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+            Calculando métricas ágeis...
+          </div>
+
+          <template x-if="metrics">
+            <div class="space-y-4 max-w-6xl mx-auto">
+              <!-- KPIs -->
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div class="rounded-xl p-4 bg-white/95 dark:bg-hubpanel/95 shadow-sm">
+                  <div class="flex items-center justify-between text-[12px] text-ink-soft dark:text-slate-400 mb-2">
+                    <span>Total de Cards</span>
+                    <span class="p-1.5 rounded-lg bg-sky-100 dark:bg-sky-500/15"><i data-lucide="layers" class="w-4 h-4 text-sky-600 dark:text-neon"></i></span>
+                  </div>
+                  <div class="text-2xl font-bold text-ink dark:text-white" x-text="metrics.total_cards"></div>
+                  <p class="text-[12px] text-ink-soft dark:text-slate-400 mt-1"><span class="font-semibold text-emerald-600 dark:text-emerald-400" x-text="metrics.done_cards"></span> concluídos (<span x-text="metrics.completion_rate + '%'"></span>)</p>
+                </div>
+                <div class="rounded-xl p-4 bg-white/95 dark:bg-hubpanel/95 shadow-sm">
+                  <div class="flex items-center justify-between text-[12px] text-ink-soft dark:text-slate-400 mb-2">
+                    <span>Story Points</span>
+                    <span class="p-1.5 rounded-lg bg-violet-100 dark:bg-violet-500/15"><i data-lucide="zap" class="w-4 h-4 text-violet-600 dark:text-violet-300"></i></span>
+                  </div>
+                  <div class="text-2xl font-bold text-ink dark:text-white"><span x-text="metrics.done_story_points"></span><span class="text-sm font-normal text-ink-faint dark:text-slate-500" x-text="' / ' + metrics.total_story_points + ' pts'"></span></div>
+                  <p class="text-[12px] text-ink-soft dark:text-slate-400 mt-1">Entregues vs escopo total</p>
+                </div>
+                <div class="rounded-xl p-4 bg-white/95 dark:bg-hubpanel/95 shadow-sm">
+                  <div class="flex items-center justify-between text-[12px] text-ink-soft dark:text-slate-400 mb-2">
+                    <span>Subtarefas</span>
+                    <span class="p-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-500/15"><i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-600 dark:text-emerald-400"></i></span>
+                  </div>
+                  <div class="text-2xl font-bold text-ink dark:text-white"><span x-text="metrics.completed_subtasks"></span><span class="text-sm font-normal text-ink-faint dark:text-slate-500" x-text="' / ' + metrics.total_subtasks"></span></div>
+                  <p class="text-[12px] text-ink-soft dark:text-slate-400 mt-1">Checklist operacional</p>
+                </div>
+                <div class="rounded-xl p-4 bg-white/95 dark:bg-hubpanel/95 shadow-sm" :class="(metrics.blocked_cards > 0 || metrics.wip_alerts.length > 0) && 'ring-2 ring-red-400'">
+                  <div class="flex items-center justify-between text-[12px] text-ink-soft dark:text-slate-400 mb-2">
+                    <span>Bloqueios &amp; WIP</span>
+                    <span class="p-1.5 rounded-lg bg-rose-100 dark:bg-rose-500/15"><i data-lucide="shield-alert" class="w-4 h-4 text-rose-600 dark:text-rose-400"></i></span>
+                  </div>
+                  <div class="text-2xl font-bold" :class="metrics.blocked_cards > 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'"><span x-text="metrics.blocked_cards"></span><span class="text-sm font-normal text-ink-soft dark:text-slate-400"> bloqueados</span></div>
+                  <p class="text-[12px] text-ink-soft dark:text-slate-400 mt-1"><span class="font-semibold" x-text="metrics.wip_alerts.length"></span> coluna(s) acima do WIP</p>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                <!-- Saúde de WIP -->
+                <div class="lg:col-span-2 rounded-xl p-5 bg-white/95 dark:bg-hubpanel/95 shadow-sm">
+                  <h2 class="font-bold text-ink dark:text-white">Saúde de WIP e Fluxo por Coluna</h2>
+                  <p class="text-[12px] text-ink-soft dark:text-slate-400 mb-4">Volume atual, Story Points e limite WIP</p>
+                  <div class="space-y-4">
+                    <template x-for="col in metrics.columns" :key="col.column_id">
+                      <div>
+                        <div class="flex items-center justify-between text-[13px] mb-1.5">
+                          <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-2.5 rounded-full" :style="`background-color: ${col.color}`"></span>
+                            <span class="font-medium text-ink dark:text-slate-200" x-text="col.name"></span>
+                            <span x-show="col.wip_exceeded" class="text-[10px] font-bold uppercase px-1.5 rounded bg-red-600 text-white">WIP excedido</span>
+                          </div>
+                          <div class="flex items-center gap-3 text-ink-soft dark:text-slate-300">
+                            <span x-text="col.story_points + ' pts'"></span>
+                            <span :class="col.wip_exceeded ? 'text-red-600 dark:text-red-400 font-bold' : 'text-ink dark:text-white font-semibold'">
+                              <span x-text="col.card_count"></span><span class="font-normal text-ink-faint dark:text-slate-500" x-text="col.wip_limit ? ' / ' + col.wip_limit : ' (sem limite)'"></span>
+                            </span>
+                          </div>
+                        </div>
+                        <div class="h-2 w-full rounded-full overflow-hidden bg-slate-100 dark:bg-hubbg">
+                          <div class="h-full rounded-full transition-all duration-500"
+                            :style="`width: ${columnProgressWidth(col)}%; background-color: ${col.wip_exceeded ? '#EF4444' : col.color};`"></div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- Prioridades -->
+                <div class="rounded-xl p-5 bg-white/95 dark:bg-hubpanel/95 shadow-sm">
+                  <h2 class="font-bold text-ink dark:text-white">Distribuição por Prioridade</h2>
+                  <p class="text-[12px] text-ink-soft dark:text-slate-400 mb-4">Cards por criticidade</p>
+                  <div class="space-y-2">
+                    <template x-for="item in metrics.priorities" :key="item.priority">
+                      <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-hubbg flex items-center justify-between">
+                        <span class="inline-flex items-center gap-1 h-5 px-2 rounded text-[12px] font-semibold"
+                          :style="`background-color: ${priorityColor(item.priority)}; color: ${labelTextColor(priorityColor(item.priority))}`">
+                          <i data-lucide="flag" class="w-3 h-3"></i><span x-text="priorityLabel(item.priority)"></span>
+                        </span>
+                        <span class="font-bold text-ink dark:text-white"><span x-text="item.count"></span> <span class="text-[12px] font-normal text-ink-faint">cards</span></span>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Bloqueados -->
+              <div class="rounded-xl p-5 bg-white/95 dark:bg-hubpanel/95 shadow-sm">
+                <h2 class="font-bold text-ink dark:text-white">Impedimentos e Cards Bloqueados</h2>
+                <p class="text-[12px] text-ink-soft dark:text-slate-400 mb-4">Itens que requerem ação imediata</p>
+                <div x-show="metrics.blocked_items.length === 0" class="py-5 text-center text-[13px] rounded-lg bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400">
+                  Nenhum card bloqueado neste quadro. Fluxo saudável!
+                </div>
+                <div x-show="metrics.blocked_items.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <template x-for="bcard in metrics.blocked_items" :key="bcard.id">
+                    <div @click="openCardDetail(bcard)" class="kanban-card p-3 rounded-lg cursor-pointer border-l-4 border-red-500">
+                      <div class="flex items-center justify-between mb-1">
+                        <span class="font-mono text-[11px] font-semibold text-sky-700 dark:text-neon" x-text="bcard.code"></span>
+                        <span class="text-[12px] text-ink-faint dark:text-slate-400" x-text="bcard.assignee || 'Sem responsável'"></span>
+                      </div>
+                      <p class="font-medium text-ink dark:text-white" x-text="bcard.title"></p>
+                      <p class="text-[12px] text-red-600 dark:text-red-300 mt-1" x-text="bcard.blocked_reason || 'Motivo não informado.'"></p>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- ========== MENU LATERAL DIREITO DO QUADRO ========== -->
+        <aside
+          x-cloak
+          x-show="menuOpen"
+          x-transition:enter="transition ease-out duration-200"
+          x-transition:enter-start="translate-x-full opacity-0"
+          x-transition:enter-end="translate-x-0 opacity-100"
+          x-transition:leave="transition ease-in duration-150"
+          x-transition:leave-start="translate-x-0 opacity-100"
+          x-transition:leave-end="translate-x-full opacity-0"
+          @keydown.escape.window="menuOpen && closeMenu()"
+          class="absolute top-0 right-0 bottom-0 z-30 w-80 max-w-full bg-white dark:bg-hubpanel border-l border-slate-200 dark:border-hubborder shadow-2xl flex flex-col overflow-hidden text-ink dark:text-slate-100"
+        >
+          <!-- Header do Menu -->
+          <div class="h-12 shrink-0 px-3 border-b border-slate-200 dark:border-hubborder flex items-center justify-between">
+            <button
+              x-show="menuSection !== 'main'"
+              @click="setMenuSection('main')"
+              title="Voltar ao menu"
+              class="w-8 h-8 rounded-lg flex items-center justify-center text-ink-soft dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            >
+              <i data-lucide="chevron-left" class="w-4 h-4"></i>
+            </button>
+            <div x-show="menuSection === 'main'" class="w-8"></div>
+
+            <h2 class="text-[14px] font-semibold text-ink dark:text-white truncate">
+              <span x-show="menuSection === 'main'">Menu</span>
+              <span x-show="menuSection === 'about'">Sobre este quadro</span>
+              <span x-show="menuSection === 'background'">Alterar plano de fundo</span>
+              <span x-show="menuSection === 'export'">Imprimir, exportar e compartilhar</span>
+              <span x-show="menuSection === 'settings'">Configurações</span>
+            </h2>
+
+            <button
+              @click="closeMenu()"
+              title="Fechar menu"
+              class="w-8 h-8 rounded-lg flex items-center justify-center text-ink-soft dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            >
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+          </div>
+
+          <!-- Corpo do Menu -->
+          <div class="flex-1 overflow-y-auto p-3 space-y-1">
+
+            <!-- ===== TELA PRINCIPAL DO MENU ===== -->
+            <div x-show="menuSection === 'main'" class="space-y-1">
+              <!-- Compartilhar -->
+              <button @click="openShareModal()"
+                class="w-full px-2.5 py-2 rounded-lg flex items-center justify-between gap-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                <span class="flex items-center gap-2.5 text-[14px] font-medium">
+                  <i data-lucide="user-plus" class="w-4 h-4 text-ink-soft dark:text-slate-400"></i>
+                  <span>Compartilhar</span>
+                </span>
+                <div class="flex -space-x-1">
+                  <template x-for="m in boardMembers().slice(0, 3)" :key="m">
+                    <span class="w-6 h-6 rounded-full ring-2 ring-white dark:ring-hubpanel text-[10px] font-bold flex items-center justify-center text-white"
+                      :style="`background-color: ${avatarColor(m)}`" x-text="initials(m)"></span>
+                  </template>
+                </div>
+              </button>
+
+              <hr class="my-2 border-slate-200 dark:border-hubborder" />
+
+              <!-- Sobre este quadro -->
+              <button @click="setMenuSection('about')"
+                class="w-full px-2.5 py-2 rounded-lg flex items-start gap-2.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                <i data-lucide="info" class="w-4 h-4 mt-0.5 text-ink-soft dark:text-slate-400 shrink-0"></i>
+                <span class="min-w-0">
+                  <span class="block text-[14px] font-medium">Sobre este quadro</span>
+                  <span class="block text-[12px] text-ink-faint dark:text-slate-400 truncate" x-text="activeBoard?.description || 'Veja os detalhes e equipe do quadro'"></span>
+                </span>
+              </button>
+
+              <!-- Visibilidade -->
+              <div class="w-full px-2.5 py-2 rounded-lg flex items-center gap-2.5 text-[14px] text-ink-soft dark:text-slate-300">
+                <i data-lucide="users" class="w-4 h-4 text-ink-soft dark:text-slate-400 shrink-0"></i>
+                <span>Visibilidade: <strong class="font-medium text-ink dark:text-white">Área de trabalho</strong></span>
+              </div>
+
+              <!-- Imprimir, exportar e compartilhar -->
+              <button @click="setMenuSection('export')"
+                class="w-full px-2.5 py-2 rounded-lg flex items-center justify-between gap-2.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                <span class="flex items-center gap-2.5 text-[14px] font-medium">
+                  <i data-lucide="share-2" class="w-4 h-4 text-ink-soft dark:text-slate-400"></i>
+                  <span>Imprimir, exportar e compartilhar</span>
+                </span>
+                <i data-lucide="chevron-right" class="w-4 h-4 text-ink-faint"></i>
+              </button>
+
+              <!-- Marcar com estrela -->
+              <button @click="toggleBoardStar()"
+                class="w-full px-2.5 py-2 rounded-lg flex items-center gap-2.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                <i data-lucide="star" class="w-4 h-4 shrink-0" :class="isBoardStarred(activeBoard?.id) ? 'text-amber-400 fill-amber-400' : 'text-ink-soft dark:text-slate-400'"></i>
+                <span class="text-[14px] font-medium" x-text="isBoardStarred(activeBoard?.id) ? 'Remover estrela' : 'Marcar com estrela'"></span>
+              </button>
+
+              <hr class="my-2 border-slate-200 dark:border-hubborder" />
+
+              <!-- Configurações -->
+              <button @click="setMenuSection('settings')"
+                class="w-full px-2.5 py-2 rounded-lg flex items-center justify-between gap-2.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                <span class="flex items-center gap-2.5 text-[14px] font-medium">
+                  <i data-lucide="settings" class="w-4 h-4 text-ink-soft dark:text-slate-400"></i>
+                  <span>Configurações</span>
+                </span>
+                <i data-lucide="chevron-right" class="w-4 h-4 text-ink-faint"></i>
+              </button>
+
+              <!-- Alterar plano de fundo -->
+              <button @click="setMenuSection('background')"
+                class="w-full px-2.5 py-2 rounded-lg flex items-center justify-between gap-2.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+                <span class="flex items-center gap-2.5 text-[14px] font-medium">
+                  <span class="w-5 h-5 rounded shrink-0 border border-black/10 dark:border-white/20 shadow-inner" :style="boardBgStyle(activeBoard)"></span>
+                  <span>Alterar plano de fundo</span>
+                </span>
+                <i data-lucide="chevron-right" class="w-4 h-4 text-ink-faint"></i>
+              </button>
+
+              <hr class="my-2 border-slate-200 dark:border-hubborder" />
+
+              <!-- Card resumo Enterprise HubUP -->
+              <div class="p-3 rounded-xl bg-sky-50/90 dark:bg-hubbg border border-sky-100 dark:border-hubborder space-y-1.5">
+                <div class="flex items-center gap-2 text-[12px] font-semibold text-sky-700 dark:text-neon">
+                  <i data-lucide="sparkles" class="w-4 h-4"></i>
+                  <span>HubUP Flow Enterprise</span>
+                </div>
+                <p class="text-[12px] text-ink-soft dark:text-slate-400 leading-relaxed">
+                  Personalize o fundo de cada quadro, acompanhe alertas de WIP em tempo real e exporte seus dados para auditoria.
+                </p>
+              </div>
+            </div>
+
+            <!-- ===== SUBMENU: ALTERAR PLANO DE FUNDO ===== -->
+            <div x-show="menuSection === 'background'" class="space-y-4">
+              <!-- Upload de Imagem Personalizada -->
+              <div>
+                <h3 class="text-[12px] font-semibold uppercase tracking-wider text-ink-faint dark:text-slate-400 mb-2">Imagem Personalizada</h3>
+                <label class="w-full p-3.5 rounded-xl border-2 border-dashed border-slate-300 dark:border-hubborder hover:border-sky-500 dark:hover:border-neon bg-slate-50/80 dark:bg-hubbg/80 hover:bg-sky-50/50 dark:hover:bg-slate-800/60 transition cursor-pointer flex flex-col items-center justify-center gap-1.5 text-center">
+                  <input type="file" accept="image/*" @change="handleBackgroundUpload($event)" class="hidden" />
+                  <span class="w-9 h-9 rounded-full bg-sky-100 dark:bg-neon/15 text-sky-600 dark:text-neon flex items-center justify-center">
+                    <i data-lucide="image-plus" class="w-4 h-4"></i>
+                  </span>
+                  <span class="text-[13px] font-semibold text-ink dark:text-white" x-text="uploadingBg ? 'Processando imagem...' : 'Enviar imagem do computador'"></span>
+                  <span class="text-[11px] text-ink-faint dark:text-slate-400">PNG, JPG ou WEBP (otimizada automaticamente)</span>
+                </label>
+
+                <!-- Galeria de imagens enviadas -->
+                <div x-show="uploadedBackgrounds.length > 0" class="mt-2.5 grid grid-cols-2 gap-2">
+                  <template x-for="img in uploadedBackgrounds" :key="img.id">
+                    <div class="relative group/bgimg">
+                      <button
+                        type="button"
+                        @click="setBoardBackground(img.value)"
+                        :title="img.name"
+                        :class="boardGradient(activeBoard) === img.value ? 'ring-2 ring-sky-500 dark:ring-neon ring-offset-2 ring-offset-white dark:ring-offset-hubpanel' : 'hover:brightness-110'"
+                        class="w-full h-16 rounded-lg overflow-hidden relative transition bg-cover bg-center border border-slate-200 dark:border-hubborder"
+                        :style="`background-image: url('${img.value}')`"
+                      >
+                        <span x-show="boardGradient(activeBoard) === img.value" class="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-white text-sky-600 flex items-center justify-center shadow">
+                          <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        @click.stop="removeUploadedBackground(img.id)"
+                        title="Remover imagem"
+                        class="absolute top-1.5 left-1.5 w-5 h-5 rounded-full bg-black/65 hover:bg-red-600 text-white flex items-center justify-center opacity-0 group-hover/bgimg:opacity-100 transition"
+                      >
+                        <i data-lucide="trash-2" class="w-3 h-3"></i>
+                      </button>
+                    </div>
+                  </template>
+                </div>
+              </div>
+
+              <div>
+                <h3 class="text-[12px] font-semibold uppercase tracking-wider text-ink-faint dark:text-slate-400 mb-2">Gradientes</h3>
+                <div class="grid grid-cols-2 gap-2">
+                  <template x-for="bg in bgGradients" :key="bg.id">
+                    <button
+                      type="button"
+                      @click="setBoardBackground(bg.value)"
+                      :class="boardGradient(activeBoard) === bg.value ? 'ring-2 ring-sky-500 dark:ring-neon ring-offset-2 ring-offset-white dark:ring-offset-hubpanel' : 'hover:brightness-110'"
+                      class="h-16 rounded-lg relative overflow-hidden transition flex items-end p-2 text-left"
+                      :style="`background: ${bg.value}`"
+                    >
+                      <span class="text-[11px] font-semibold text-white drop-shadow" x-text="bg.name"></span>
+                      <span x-show="boardGradient(activeBoard) === bg.value" class="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-white text-sky-600 flex items-center justify-center shadow">
+                        <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                      </span>
+                    </button>
+                  </template>
+                </div>
+              </div>
+
+              <div>
+                <h3 class="text-[12px] font-semibold uppercase tracking-wider text-ink-faint dark:text-slate-400 mb-2">Cores Sólidas</h3>
+                <div class="grid grid-cols-4 gap-2">
+                  <template x-for="bg in bgSolids" :key="bg.id">
+                    <button
+                      type="button"
+                      @click="setBoardBackground(bg.value)"
+                      :title="bg.name"
+                      :class="boardGradient(activeBoard) === bg.value ? 'ring-2 ring-sky-500 dark:ring-neon ring-offset-2 ring-offset-white dark:ring-offset-hubpanel' : 'hover:brightness-110'"
+                      class="h-12 rounded-lg relative transition flex items-center justify-center"
+                      :style="`background-color: ${bg.value}`"
+                    >
+                      <i x-show="boardGradient(activeBoard) === bg.value" data-lucide="check" class="w-4 h-4 text-white drop-shadow"></i>
+                    </button>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Cor personalizada -->
+              <div class="p-3 rounded-xl bg-slate-50 dark:bg-hubbg border border-slate-200 dark:border-hubborder space-y-2">
+                <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300">Cor personalizada</label>
+                <div class="flex items-center gap-2">
+                  <input type="color" x-model="customBgColor" class="w-9 h-9 shrink-0 rounded cursor-pointer border border-slate-300 dark:border-hubborder bg-transparent" />
+                  <input type="text" x-model="customBgColor" class="min-w-0 flex-1 h-9 px-2 text-[12px] font-mono rounded-md bg-white dark:bg-hubpanel border border-slate-300 dark:border-hubborder text-ink dark:text-slate-100" />
+                  <button type="button" @click="applyCustomBackground()" class="h-9 px-2.5 shrink-0 rounded-md text-[12px] font-semibold bg-sky-600 hover:bg-sky-700 dark:bg-neon text-white dark:text-slate-950 transition">
+                    Aplicar
+                  </button>
+                </div>
+              </div>
+
+              <button type="button" @click="resetBoardBackground()"
+                class="w-full h-9 rounded-lg text-[13px] font-medium text-ink-soft dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition">
+                Restaurar fundo padrão
+              </button>
+            </div>
+
+            <!-- ===== SUBMENU: SOBRE ESTE QUADRO ===== -->
+            <div x-show="menuSection === 'about'" class="space-y-4">
+              <div class="p-3 rounded-xl bg-slate-50 dark:bg-hubbg border border-slate-200 dark:border-hubborder">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded bg-sky-100 dark:bg-neon/15 text-sky-700 dark:text-neon" x-text="activeBoard?.prefix_key"></span>
+                  <h3 class="font-semibold text-ink dark:text-white" x-text="activeBoard?.name"></h3>
+                </div>
+                <p class="text-[13px] text-ink-soft dark:text-slate-300 leading-relaxed" x-text="activeBoard?.description || 'Sem descrição cadastrada.'"></p>
+              </div>
+
+              <div>
+                <h4 class="text-[12px] font-semibold uppercase tracking-wider text-ink-faint dark:text-slate-400 mb-2">Membros ativos</h4>
+                <div class="space-y-1.5">
+                  <template x-for="m in boardMembers()" :key="m">
+                    <div class="flex items-center gap-2.5 p-1.5 rounded-lg bg-slate-50 dark:bg-hubbg">
+                      <span class="w-7 h-7 rounded-full text-[11px] font-bold flex items-center justify-center text-white" :style="`background-color: ${avatarColor(m)}`" x-text="initials(m)"></span>
+                      <span class="text-[13px] font-medium" x-text="m"></span>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <!-- ===== SUBMENU: EXPORTAR E COMPARTILHAR ===== -->
+            <div x-show="menuSection === 'export'" class="space-y-2">
+              <button @click="shareBoardLink()" class="w-full px-3 py-2.5 rounded-lg flex items-center gap-2.5 text-left bg-slate-50 dark:bg-hubbg hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-hubborder transition">
+                <i data-lucide="link" class="w-4 h-4 text-sky-600 dark:text-neon"></i>
+                <span><strong class="block text-[13px]">Copiar link do quadro</strong><span class="text-[12px] text-ink-faint dark:text-slate-400">Acesso direto ao quadro ativo</span></span>
+              </button>
+              <button @click="exportBoardCsv()" class="w-full px-3 py-2.5 rounded-lg flex items-center gap-2.5 text-left bg-slate-50 dark:bg-hubbg hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-hubborder transition">
+                <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-600 dark:text-emerald-400"></i>
+                <span><strong class="block text-[13px]">Exportar CSV (Excel)</strong><span class="text-[12px] text-ink-faint dark:text-slate-400">Tabela de cards, prioridades e pontos</span></span>
+              </button>
+              <button @click="exportBoardJson()" class="w-full px-3 py-2.5 rounded-lg flex items-center gap-2.5 text-left bg-slate-50 dark:bg-hubbg hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-hubborder transition">
+                <i data-lucide="file-json" class="w-4 h-4 text-violet-600 dark:text-violet-400"></i>
+                <span><strong class="block text-[13px]">Exportar JSON</strong><span class="text-[12px] text-ink-faint dark:text-slate-400">Backup estruturado completo</span></span>
+              </button>
+              <button @click="printBoard()" class="w-full px-3 py-2.5 rounded-lg flex items-center gap-2.5 text-left bg-slate-50 dark:bg-hubbg hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-hubborder transition">
+                <i data-lucide="printer" class="w-4 h-4 text-ink-soft dark:text-slate-400"></i>
+                <span><strong class="block text-[13px]">Imprimir quadro</strong><span class="text-[12px] text-ink-faint dark:text-slate-400">Abre diálogo de impressão</span></span>
+              </button>
+            </div>
+
+            <!-- ===== SUBMENU: CONFIGURAÇÕES ===== -->
+            <div x-show="menuSection === 'settings'" class="space-y-4">
+              <div class="space-y-2">
+                <h4 class="text-[12px] font-semibold uppercase tracking-wider text-ink-faint dark:text-slate-400">Aparência</h4>
+                <button @click="toggleTheme()" class="w-full px-3 py-2 rounded-lg flex items-center justify-between bg-slate-50 dark:bg-hubbg border border-slate-200 dark:border-hubborder text-[13px]">
+                  <span>Tema do sistema</span>
+                  <span class="font-semibold text-sky-600 dark:text-neon" x-text="theme === 'dark' ? 'Escuro' : 'Claro'"></span>
+                </button>
+                <label class="w-full px-3 py-2 rounded-lg flex items-center justify-between bg-slate-50 dark:bg-hubbg border border-slate-200 dark:border-hubborder text-[13px] cursor-pointer">
+                  <span>Exibir códigos (PREFIX-N)</span>
+                  <input type="checkbox" :checked="showCardCodes" @change="toggleShowCardCodes()" class="w-4 h-4 accent-sky-600 dark:accent-[#00F0FF]" />
+                </label>
+                <label class="w-full px-3 py-2 rounded-lg flex items-center justify-between bg-slate-50 dark:bg-hubbg border border-slate-200 dark:border-hubborder text-[13px] cursor-pointer">
+                  <span>Cartões compactos</span>
+                  <input type="checkbox" :checked="compactCards" @change="toggleCompactCards()" class="w-4 h-4 accent-sky-600 dark:accent-[#00F0FF]" />
+                </label>
+              </div>
+
+              <div class="space-y-2">
+                <h4 class="text-[12px] font-semibold uppercase tracking-wider text-ink-faint dark:text-slate-400">Limites WIP por Coluna</h4>
+                <template x-for="col in (activeBoard?.columns || [])" :key="col.id">
+                  <div class="px-3 py-2 rounded-lg flex items-center justify-between gap-2 bg-slate-50 dark:bg-hubbg border border-slate-200 dark:border-hubborder">
+                    <span class="flex items-center gap-2 text-[13px] truncate">
+                      <span class="w-2.5 h-2.5 rounded-full shrink-0" :style="`background-color: ${col.color}`"></span>
+                      <span class="truncate" x-text="col.name"></span>
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      :value="col.wip_limit || 0"
+                      @change="updateColumnWipDirect(col, $event.target.value)"
+                      title="0 = sem limite"
+                      class="w-16 h-7 px-2 text-center font-mono text-[12px] rounded bg-white dark:bg-hubpanel border border-slate-300 dark:border-hubborder text-ink dark:text-white"
+                    />
+                  </div>
+                </template>
+                <p class="text-[11px] text-ink-faint dark:text-slate-400">Informe 0 para remover o limite WIP da coluna.</p>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </section>
+    </div>
+
+    <!-- ==================== NAVEGAÇÃO FLUTUANTE (estilo anexo) ==================== -->
+    <nav class="fixed bottom-5 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1 p-1 rounded-xl bg-white dark:bg-hubpanel shadow-[0_8px_24px_rgba(9,30,66,0.25)] border border-slate-200 dark:border-hubborder">
+      <button @click="toggleLeftPanel('inbox')"
+        :class="leftPanel === 'inbox' ? 'bg-sky-100 dark:bg-neon/15 text-sky-700 dark:text-neon' : 'text-ink-soft dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
+        class="h-8 px-3 rounded-lg flex items-center gap-1.5 text-[13px] font-semibold transition">
+        <i data-lucide="inbox" class="w-4 h-4"></i> Caixa de entrada
+      </button>
+      <button @click="toggleLeftPanel('planner')"
+        :class="leftPanel === 'planner' ? 'bg-sky-100 dark:bg-neon/15 text-sky-700 dark:text-neon' : 'text-ink-soft dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
+        class="h-8 px-3 rounded-lg flex items-center gap-1.5 text-[13px] font-semibold transition">
+        <i data-lucide="calendar" class="w-4 h-4"></i> Planejador
+      </button>
+      <button @click="switchView('kanban')"
+        :class="viewMode === 'kanban' ? 'bg-sky-100 dark:bg-neon/15 text-sky-700 dark:text-neon' : 'text-ink-soft dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
+        class="h-8 px-3 rounded-lg flex items-center gap-1.5 text-[13px] font-semibold transition">
+        <i data-lucide="kanban-square" class="w-4 h-4"></i> Quadro
+      </button>
+      <button @click="toggleLeftPanel('boards')"
+        :class="leftPanel === 'boards' ? 'bg-sky-100 dark:bg-neon/15 text-sky-700 dark:text-neon' : 'text-ink-soft dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
+        class="h-8 px-3 rounded-lg flex items-center gap-1.5 text-[13px] font-semibold transition">
+        <i data-lucide="layout-grid" class="w-4 h-4"></i> Mudar de quadros
+      </button>
+      <span class="w-px h-5 bg-slate-200 dark:bg-hubborder mx-0.5"></span>
+      <button @click="switchView('metrics')"
+        :class="viewMode === 'metrics' ? 'bg-sky-100 dark:bg-neon/15 text-sky-700 dark:text-neon' : 'text-ink-soft dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'"
+        class="h-8 px-3 rounded-lg flex items-center gap-1.5 text-[13px] font-semibold transition">
+        <i data-lucide="activity" class="w-4 h-4"></i> Métricas
+      </button>
+    </nav>
+
+    <!-- ==================== MODAL: DETALHES / EDIÇÃO DO CARD ==================== -->
+    <div x-cloak x-show="selectedCard" @keydown.escape.window="closeCardDetail()"
+      class="fixed inset-0 z-50 bg-slate-950/60 dark:bg-black/75 flex items-start justify-center p-4 pt-12 overflow-y-auto">
+      <div @click.outside="closeCardDetail()"
+        class="w-full max-w-2xl rounded-xl bg-white dark:bg-hubpanel shadow-2xl border border-slate-200 dark:border-hubborder overflow-hidden">
+        <template x-if="selectedCard">
+          <div class="flex flex-col">
+            <!-- Faixa de prioridade -->
+            <div class="h-2" :style="`background-color: ${priorityColor(selectedCard.priority)}`"></div>
+
+            <!-- Cabeçalho -->
+            <div class="px-6 pt-4 pb-3 flex items-start justify-between gap-4">
+              <div class="flex items-start gap-3 min-w-0">
+                <i data-lucide="credit-card" class="w-5 h-5 mt-0.5 text-ink-soft dark:text-slate-400 shrink-0"></i>
+                <div class="min-w-0">
+                  <h2 class="text-[18px] font-semibold leading-6 text-ink dark:text-white" x-text="selectedCard.title"></h2>
+                  <p class="text-[12px] text-ink-soft dark:text-slate-400 mt-0.5">
+                    <span class="font-mono font-semibold text-sky-700 dark:text-neon" x-text="selectedCard.code"></span>
+                    na lista <span class="underline underline-offset-2 font-medium" x-text="columnName(selectedCard.column_id)"></span>
+                    <span x-show="selectedCard.assignee" x-text="' • ' + selectedCard.assignee"></span>
+                  </p>
+                </div>
+              </div>
+              <button @click="closeCardDetail()" class="w-8 h-8 rounded-full flex items-center justify-center text-ink-soft dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <i data-lucide="x" class="w-5 h-5"></i>
+              </button>
+            </div>
+
+            <!-- Visualização -->
+            <div x-show="!editMode" class="px-6 pb-5 space-y-5">
+              <!-- Etiquetas -->
+              <div class="flex flex-wrap gap-1.5">
+                <span class="inline-flex items-center gap-1 h-6 px-2 rounded text-[12px] font-semibold"
+                  :style="`background-color: ${priorityColor(selectedCard.priority)}; color: ${labelTextColor(priorityColor(selectedCard.priority))}`">
+                  <i data-lucide="flag" class="w-3 h-3"></i><span x-text="priorityLabel(selectedCard.priority)"></span>
+                </span>
+                <span x-show="selectedCard.story_points !== null && selectedCard.story_points !== undefined"
+                  class="inline-flex items-center gap-1 h-6 px-2 rounded text-[12px] font-semibold bg-slate-100 dark:bg-slate-800 text-ink dark:text-slate-200">
+                  <i data-lucide="zap" class="w-3 h-3"></i><span x-text="selectedCard.story_points + ' Story Points'"></span>
+                </span>
+                <template x-for="label in selectedCard.labels" :key="label.id">
+                  <span class="h-6 px-2 rounded text-[12px] font-semibold leading-6"
+                    :style="`background-color: ${label.color}; color: ${labelTextColor(label.color)}`" x-text="label.name"></span>
+                </template>
+              </div>
+
+              <!-- Mover para -->
+              <div>
+                <h3 class="text-[12px] font-semibold text-ink-soft dark:text-slate-400 mb-1.5">Mover para</h3>
+                <div class="flex flex-wrap gap-1.5">
+                  <template x-for="col in (activeBoard?.columns || [])" :key="col.id">
+                    <button type="button" @click="col.id !== selectedCard.column_id && moveCard(selectedCard.id, col.id)"
+                      :class="col.id === selectedCard.column_id
+                        ? 'bg-sky-600 dark:bg-neon text-white dark:text-slate-950'
+                        : 'bg-slate-100 dark:bg-slate-800 text-ink dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700'"
+                      class="h-8 px-3 rounded-md text-[13px] font-medium inline-flex items-center gap-1.5 transition">
+                      <span class="w-2 h-2 rounded-full" :style="`background-color: ${col.color}`"></span>
+                      <span x-text="col.name"></span>
+                    </button>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Bloqueio -->
+              <div x-show="selectedCard.is_blocked" class="p-3 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-500/40 flex items-start justify-between gap-3">
+                <div class="flex items-start gap-2">
+                  <i data-lucide="ban" class="w-4 h-4 mt-0.5 text-red-600 dark:text-red-400 shrink-0"></i>
+                  <div>
+                    <p class="text-[12px] font-bold uppercase text-red-700 dark:text-red-300">Cartão bloqueado</p>
+                    <p class="text-[13px] text-red-700 dark:text-red-200" x-text="selectedCard.blocked_reason || 'Bloqueio ativo sem motivo detalhado.'"></p>
+                  </div>
+                </div>
+                <button @click="toggleCardBlock(selectedCard)" class="h-8 px-3 rounded-md text-[13px] font-medium bg-white dark:bg-red-500/20 border border-red-200 dark:border-red-500/40 text-red-700 dark:text-red-200 hover:bg-red-100 shrink-0">Desbloquear</button>
+              </div>
+
+              <!-- Descrição -->
+              <div>
+                <h3 class="flex items-center gap-2 font-semibold text-ink dark:text-white mb-2">
+                  <i data-lucide="align-left" class="w-4 h-4 text-ink-soft dark:text-slate-400"></i> Descrição
+                </h3>
+                <div class="p-3 rounded-lg bg-slate-50 dark:bg-hubbg text-[14px] text-ink dark:text-slate-200 whitespace-pre-wrap leading-relaxed"
+                  x-text="selectedCard.description || 'Nenhuma descrição cadastrada.'"></div>
+              </div>
+
+              <!-- Checklist -->
+              <div>
+                <div class="flex items-center justify-between mb-2">
+                  <h3 class="flex items-center gap-2 font-semibold text-ink dark:text-white">
+                    <i data-lucide="check-square" class="w-4 h-4 text-ink-soft dark:text-slate-400"></i> Checklist
+                  </h3>
+                  <span class="text-[12px] text-ink-soft dark:text-slate-400" x-text="`${completedSubtasksCount(selectedCard)}/${selectedCard.subtasks.length}`"></span>
+                </div>
+                <div class="flex items-center gap-2 mb-3">
+                  <span class="text-[11px] w-8 text-ink-soft dark:text-slate-400"
+                    x-text="(selectedCard.subtasks.length ? Math.round(completedSubtasksCount(selectedCard) / selectedCard.subtasks.length * 100) : 0) + '%'"></span>
+                  <div class="flex-1 h-2 rounded-full bg-slate-100 dark:bg-hubbg overflow-hidden">
+                    <div class="h-full rounded-full transition-all duration-300"
+                      :class="selectedCard.subtasks.length && completedSubtasksCount(selectedCard) === selectedCard.subtasks.length ? 'bg-emerald-500' : 'bg-sky-600 dark:bg-neon'"
+                      :style="`width: ${selectedCard.subtasks.length ? (completedSubtasksCount(selectedCard) / selectedCard.subtasks.length) * 100 : 0}%`"></div>
+                  </div>
+                </div>
+                <div class="space-y-0.5 mb-2">
+                  <template x-for="st in selectedCard.subtasks" :key="st.id">
+                    <div class="group/st flex items-center gap-2.5 px-2 py-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800/70">
+                      <input type="checkbox" :checked="st.is_completed" @change="toggleSubtask(st)" class="w-4 h-4 accent-sky-600 dark:accent-[#00F0FF] cursor-pointer" />
+                      <span class="flex-1 text-[14px]" :class="st.is_completed ? 'line-through text-ink-faint dark:text-slate-500' : 'text-ink dark:text-slate-200'" x-text="st.title"></span>
+                      <button @click="deleteSubtask(st.id)" title="Remover" class="opacity-0 group-hover/st:opacity-100 text-ink-faint hover:text-red-500 p-1">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                      </button>
+                    </div>
+                  </template>
+                </div>
+                <form @submit.prevent="addSubtask()" class="flex gap-2">
+                  <input type="text" x-model="newSubtaskTitle" placeholder="Adicionar um item..."
+                    class="flex-1 h-9 px-3 text-[14px] rounded-md bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-slate-100 placeholder-ink-faint focus:outline-none focus:border-sky-500 dark:focus:border-neon" />
+                  <button type="submit" class="h-9 px-3 rounded-md text-[14px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-ink dark:text-slate-100">Adicionar</button>
+                </form>
+              </div>
+            </div>
+
+            <!-- Edição -->
+            <form x-show="editMode" @submit.prevent="saveEdit()" id="edit-card-form" class="px-6 pb-5 space-y-4">
+              <div>
+                <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Título *</label>
+                <input type="text" required x-model="editForm.title"
+                  class="w-full h-9 px-3 text-[14px] rounded-md bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-white focus:outline-none focus:border-sky-500 dark:focus:border-neon" />
+              </div>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Lista</label>
+                  <select x-model.number="editForm.column_id" class="w-full h-9 px-2 text-[13px] rounded-md bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-slate-100 focus:outline-none focus:border-sky-500">
+                    <template x-for="col in (activeBoard?.columns || [])" :key="col.id">
+                      <option :value="col.id" :selected="col.id === editForm.column_id" x-text="col.name"></option>
+                    </template>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Prioridade</label>
+                  <select x-model="editForm.priority" class="w-full h-9 px-2 text-[13px] rounded-md bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-slate-100 focus:outline-none focus:border-sky-500">
+                    <option value="critica">Crítica</option><option value="alta">Alta</option><option value="media">Média</option><option value="baixa">Baixa</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Story Points</label>
+                  <select x-model="editForm.story_points" class="w-full h-9 px-2 text-[13px] rounded-md bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-slate-100 focus:outline-none focus:border-sky-500">
+                    <option value="">Sem estimativa</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="5">5</option><option value="8">8</option><option value="13">13</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Responsável</label>
+                  <input type="text" x-model="editForm.assignee" placeholder="Nome"
+                    class="w-full h-9 px-2 text-[13px] rounded-md bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-white placeholder-ink-faint focus:outline-none focus:border-sky-500" />
+                </div>
+              </div>
+              <div x-show="activeBoard && activeBoard.labels && activeBoard.labels.length > 0">
+                <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Etiquetas</label>
+                <div class="flex flex-wrap gap-1.5">
+                  <template x-for="label in (activeBoard?.labels || [])" :key="label.id">
+                    <button type="button" @click="toggleEditLabel(label.id)"
+                      :class="editForm.label_ids.includes(label.id) ? 'ring-2 ring-offset-2 ring-sky-500 dark:ring-neon ring-offset-white dark:ring-offset-hubpanel' : 'opacity-50 hover:opacity-90'"
+                      class="h-7 px-2.5 rounded text-[12px] font-semibold transition"
+                      :style="`background-color: ${label.color}; color: ${labelTextColor(label.color)}`" x-text="label.name"></button>
+                  </template>
+                </div>
+              </div>
+              <div>
+                <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Descrição (Markdown)</label>
+                <textarea rows="5" x-model="editForm.description"
+                  class="w-full px-3 py-2 text-[13px] rounded-md bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-white font-mono focus:outline-none focus:border-sky-500 dark:focus:border-neon"></textarea>
+              </div>
+              <div class="p-3 rounded-lg" :class="editForm.is_blocked ? 'bg-red-50 dark:bg-red-950/30' : 'bg-slate-50 dark:bg-hubbg'">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" x-model="editForm.is_blocked" class="w-4 h-4 accent-red-600" />
+                  <span class="text-[13px] font-semibold text-ink dark:text-slate-200">Cartão bloqueado (impedimento)</span>
+                </label>
+                <input x-show="editForm.is_blocked" type="text" x-model="editForm.blocked_reason" placeholder="Motivo do bloqueio..."
+                  class="mt-2 w-full h-9 px-3 text-[13px] rounded-md bg-white dark:bg-hubbg border border-red-200 dark:border-red-500/40 text-ink dark:text-white focus:outline-none focus:border-red-400" />
+              </div>
+            </form>
+
+            <!-- Rodapé -->
+            <div x-show="editMode" class="px-6 py-3 border-t border-slate-200 dark:border-hubborder bg-slate-50 dark:bg-slate-950/40 flex justify-end gap-2">
+              <button type="button" @click="cancelEdit()" class="h-8 px-3 rounded-md text-[14px] font-medium text-ink-soft dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800">Cancelar</button>
+              <button type="submit" form="edit-card-form" :disabled="submitting"
+                class="h-8 px-3 rounded-md text-[14px] font-semibold bg-sky-600 hover:bg-sky-700 dark:bg-neon dark:hover:brightness-110 text-white dark:text-slate-950 disabled:opacity-50 flex items-center gap-1.5">
+                <i data-lucide="save" class="w-4 h-4"></i><span x-text="submitting ? 'Salvando...' : 'Salvar'"></span>
+              </button>
+            </div>
+            <div x-show="!editMode" class="px-6 py-3 border-t border-slate-200 dark:border-hubborder bg-slate-50 dark:bg-slate-950/40 flex items-center justify-between gap-2">
+              <div class="flex items-center gap-1.5">
+                <button @click="startEdit()" class="h-8 px-3 rounded-md text-[13px] font-semibold bg-sky-600 hover:bg-sky-700 dark:bg-neon dark:hover:brightness-110 text-white dark:text-slate-950 flex items-center gap-1.5">
+                  <i data-lucide="pencil" class="w-3.5 h-3.5"></i> Editar
+                </button>
+                <button x-show="!selectedCard.is_blocked" @click="toggleCardBlock(selectedCard)" class="h-8 px-3 rounded-md text-[13px] font-medium bg-slate-200/70 dark:bg-slate-800 hover:bg-red-100 dark:hover:bg-red-500/20 text-ink dark:text-slate-200 hover:text-red-700 flex items-center gap-1.5">
+                  <i data-lucide="ban" class="w-3.5 h-3.5"></i> Bloquear
+                </button>
+                <button @click="deleteCard(selectedCard.id)" class="h-8 px-3 rounded-md text-[13px] font-medium text-ink-soft dark:text-slate-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:text-red-600 flex items-center gap-1.5">
+                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Excluir
+                </button>
+              </div>
+              <button @click="closeCardDetail()" class="h-8 px-3 rounded-md text-[13px] font-medium text-ink-soft dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800">Fechar</button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ==================== MODAL: NOVO CARD ==================== -->
+    <div x-cloak x-show="showNewCardModal" @keydown.escape.window="showNewCardModal = false"
+      class="fixed inset-0 z-50 bg-slate-950/60 dark:bg-black/75 flex items-start justify-center p-4 pt-16">
+      <div @click.outside="showNewCardModal = false" class="w-full max-w-xl rounded-xl bg-white dark:bg-hubpanel shadow-2xl border border-slate-200 dark:border-hubborder overflow-hidden">
+        <div class="px-6 py-4 border-b border-slate-200 dark:border-hubborder flex items-center justify-between">
+          <h2 class="font-semibold text-[16px] text-ink dark:text-white">Novo cartão — <span class="text-sky-700 dark:text-neon" x-text="activeBoard?.name"></span></h2>
+          <button @click="showNewCardModal = false" class="w-8 h-8 rounded-full flex items-center justify-center text-ink-soft hover:bg-slate-100 dark:hover:bg-slate-800"><i data-lucide="x" class="w-4 h-4"></i></button>
+        </div>
+        <form @submit.prevent="submitNewCard()" class="p-6 space-y-4">
+          <div>
+            <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Título do Card *</label>
+            <input type="text" required x-model="newCard.title" placeholder="Ex: Implementar anonimização de RG em PDFs escaneados"
+              class="w-full h-9 px-3 text-[14px] rounded-md bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-white placeholder-ink-faint focus:outline-none focus:border-sky-500 dark:focus:border-neon" />
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Coluna Inicial</label>
+              <select x-model.number="newCard.column_id" class="w-full h-9 px-2 text-[13px] rounded-md bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-slate-100 focus:outline-none focus:border-sky-500">
+                <template x-for="col in (activeBoard?.columns || [])" :key="col.id">
+                  <option :value="col.id" :selected="col.id === newCard.column_id" x-text="col.name"></option>
+                </template>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Prioridade</label>
+              <select x-model="newCard.priority" class="w-full h-9 px-2 text-[13px] rounded-md bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-slate-100 focus:outline-none focus:border-sky-500">
+                <option value="critica">Crítica</option><option value="alta">Alta</option><option value="media">Média</option><option value="baixa">Baixa</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Story Points</label>
+              <select x-model="newCard.story_points" class="w-full h-9 px-2 text-[13px] rounded-md bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-slate-100 focus:outline-none focus:border-sky-500">
+                <option value="">Sem estimativa</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="5">5</option><option value="8">8</option><option value="13">13</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Responsável (opcional)</label>
+            <input type="text" x-model="newCard.assignee" placeholder="Ex: André Silva"
+              class="w-full h-9 px-3 text-[13px] rounded-md bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-white placeholder-ink-faint focus:outline-none focus:border-sky-500" />
+          </div>
+          <div x-show="activeBoard && activeBoard.labels && activeBoard.labels.length > 0">
+            <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Etiquetas</label>
+            <div class="flex flex-wrap gap-1.5">
+              <template x-for="label in (activeBoard?.labels || [])" :key="label.id">
+                <button type="button" @click="toggleNewCardLabel(label.id)"
+                  :class="newCard.label_ids.includes(label.id) ? 'ring-2 ring-offset-2 ring-sky-500 dark:ring-neon ring-offset-white dark:ring-offset-hubpanel' : 'opacity-50 hover:opacity-90'"
+                  class="h-7 px-2.5 rounded text-[12px] font-semibold transition"
+                  :style="`background-color: ${label.color}; color: ${labelTextColor(label.color)}`" x-text="label.name"></button>
+              </template>
+            </div>
+          </div>
+          <div>
+            <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Descrição (Markdown)</label>
+            <textarea rows="4" x-model="newCard.description" placeholder="Contexto técnico, critérios de aceite, links..."
+              class="w-full px-3 py-2 text-[13px] rounded-md bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-white placeholder-ink-faint font-mono focus:outline-none focus:border-sky-500 dark:focus:border-neon"></textarea>
+          </div>
+          <div class="flex justify-end gap-2 pt-1">
+            <button type="button" @click="showNewCardModal = false" class="h-9 px-4 rounded-md text-[14px] font-medium text-ink-soft dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Cancelar</button>
+            <button type="submit" :disabled="submitting" class="h-9 px-4 rounded-md text-[14px] font-semibold bg-sky-600 hover:bg-sky-700 dark:bg-neon dark:hover:brightness-110 text-white dark:text-slate-950 disabled:opacity-50">
+              <span x-text="submitting ? 'Criando...' : 'Criar cartão'"></span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ==================== MODAL: COMPARTILHAR QUADRO ==================== -->
+    <div x-cloak x-show="showShareModal" @keydown.escape.window="closeShareModal()"
+      class="fixed inset-0 z-50 bg-slate-950/60 dark:bg-black/75 flex items-start justify-center p-4 pt-12 overflow-y-auto">
+      <div @click.outside="closeShareModal()"
+        class="w-full max-w-xl rounded-xl bg-white dark:bg-hubpanel shadow-2xl border border-slate-200 dark:border-hubborder overflow-hidden text-ink dark:text-slate-100">
+        <!-- Cabeçalho -->
+        <div class="px-6 py-4 border-b border-slate-200 dark:border-hubborder flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <span class="w-8 h-8 rounded-lg bg-sky-100 dark:bg-neon/15 text-sky-600 dark:text-neon flex items-center justify-center shrink-0">
+              <i data-lucide="user-plus" class="w-4 h-4"></i>
+            </span>
+            <div class="min-w-0">
+              <h2 class="font-semibold text-[16px] text-ink dark:text-white truncate">Compartilhar quadro</h2>
+              <p class="text-[12px] text-ink-faint dark:text-slate-400 truncate" x-text="activeBoard?.name"></p>
+            </div>
+          </div>
+          <button @click="closeShareModal()" class="w-8 h-8 rounded-full flex items-center justify-center text-ink-soft dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <div class="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
+          <!-- Formulário adicionar contato -->
+          <form @submit.prevent="submitShareInput()" class="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              x-model="shareInput"
+              placeholder="Nome ou e-mail do contato (ex: joao@hubup.com.br)"
+              class="min-w-0 flex-1 h-9 px-3 text-[13px] rounded-lg bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-white placeholder-ink-faint focus:outline-none focus:border-sky-500 dark:focus:border-neon"
+            />
+            <select x-model="shareRole"
+              class="h-9 px-2.5 text-[13px] rounded-lg bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-slate-100 focus:outline-none focus:border-sky-500">
+              <option value="editor">Editor</option>
+              <option value="viewer">Visualizador</option>
+              <option value="admin">Administrador</option>
+            </select>
+            <button type="submit"
+              class="h-9 px-4 shrink-0 rounded-lg text-[13px] font-semibold bg-sky-600 hover:bg-sky-700 dark:bg-neon dark:hover:brightness-110 text-white dark:text-slate-950 transition">
+              Compartilhar
+            </button>
+          </form>
+
+          <!-- Sugestões rápidas de contatos -->
+          <div x-show="availableContactsToShare().length > 0">
+            <p class="text-[11px] font-semibold uppercase tracking-wider text-ink-faint dark:text-slate-400 mb-2">
+              Contatos sugeridos (clique para compartilhar)
+            </p>
+            <div class="flex flex-wrap gap-1.5">
+              <template x-for="contact in availableContactsToShare().slice(0, 8)" :key="contact.id">
+                <button
+                  type="button"
+                  @click="shareWithContact(contact)"
+                  class="inline-flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full bg-slate-100 dark:bg-hubbg hover:bg-sky-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-hubborder hover:border-sky-300 dark:hover:border-neon/50 text-[12px] transition"
+                >
+                  <span class="w-5 h-5 rounded-full text-[9px] font-bold flex items-center justify-center text-white"
+                    :style="`background-color: ${avatarColor(contact.name)}`" x-text="initials(contact.name)"></span>
+                  <span class="font-medium text-ink dark:text-slate-200" x-text="contact.name"></span>
+                  <i data-lucide="plus" class="w-3 h-3 text-sky-600 dark:text-neon"></i>
+                </button>
+              </template>
+            </div>
+          </div>
+
+          <!-- Link de compartilhamento -->
+          <div class="p-3 rounded-xl bg-slate-50 dark:bg-hubbg border border-slate-200 dark:border-hubborder flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <span class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                :class="isShareLinkEnabled() ? 'bg-emerald-100 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' : 'bg-slate-200 dark:bg-slate-800 text-slate-500'">
+                <i data-lucide="link" class="w-4 h-4"></i>
+              </span>
+              <div class="min-w-0">
+                <p class="text-[13px] font-semibold text-ink dark:text-white" x-text="isShareLinkEnabled() ? 'Link do quadro ativo' : 'Link do quadro desativado'"></p>
+                <p class="text-[11px] text-ink-faint dark:text-slate-400 truncate" x-text="isShareLinkEnabled() ? 'Qualquer contato da HubUP com o link pode acessar' : 'Apenas contatos listados abaixo têm acesso'"></p>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <button type="button" x-show="isShareLinkEnabled()" @click="shareBoardLink()"
+                class="h-8 px-2.5 rounded-md text-[12px] font-semibold bg-white dark:bg-hubpanel border border-slate-300 dark:border-hubborder hover:border-sky-500 text-ink dark:text-slate-200 transition">
+                Copiar link
+              </button>
+              <button type="button" @click="toggleShareLink()"
+                class="h-8 px-2.5 rounded-md text-[12px] font-medium transition"
+                :class="isShareLinkEnabled() ? 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10' : 'text-sky-600 dark:text-neon hover:bg-sky-50 dark:hover:bg-neon/10'"
+                x-text="isShareLinkEnabled() ? 'Desativar' : 'Ativar'">
+              </button>
+            </div>
+          </div>
+
+          <!-- Lista de contatos com acesso (Compartilhados) -->
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="text-[12px] font-semibold uppercase tracking-wider text-ink-faint dark:text-slate-400">
+                Pessoas com acesso (<span x-text="sharedContacts().length"></span>)
+              </h3>
+              <button
+                type="button"
+                x-show="sharedContacts().length > 0"
+                @click="unshareAllContacts()"
+                class="text-[12px] font-medium text-red-600 dark:text-red-400 hover:underline underline-offset-2"
+              >
+                Descompartilhar com todos
+              </button>
+            </div>
+
+            <div x-show="sharedContacts().length === 0"
+              class="py-6 text-center text-[13px] text-ink-faint dark:text-slate-400 rounded-xl border border-dashed border-slate-300 dark:border-hubborder">
+              Este quadro não está compartilhado com nenhum contato no momento.
+            </div>
+
+            <div x-show="sharedContacts().length > 0" class="space-y-2">
+              <template x-for="member in sharedContacts()" :key="member.id">
+                <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-hubbg border border-slate-200 dark:border-hubborder flex items-center justify-between gap-3">
+                  <div class="flex items-center gap-2.5 min-w-0">
+                    <span class="w-8 h-8 rounded-full text-[11px] font-bold flex items-center justify-center text-white shrink-0"
+                      :style="`background-color: ${avatarColor(member.name)}`" x-text="initials(member.name)"></span>
+                    <div class="min-w-0">
+                      <p class="text-[13px] font-semibold text-ink dark:text-white truncate" x-text="member.name"></p>
+                      <p class="text-[11px] text-ink-faint dark:text-slate-400 truncate" x-text="member.email"></p>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1.5 shrink-0">
+                    <select
+                      :value="member.access"
+                      @change="updateContactAccess(member.id, $event.target.value)"
+                      class="h-8 px-2 text-[12px] rounded-md bg-white dark:bg-hubpanel border border-slate-300 dark:border-hubborder text-ink dark:text-slate-200 focus:outline-none focus:border-sky-500"
+                    >
+                      <option value="admin">Administrador</option>
+                      <option value="editor">Editor</option>
+                      <option value="viewer">Visualizador</option>
+                    </select>
+                    <button
+                      type="button"
+                      @click="unshareContact(member.id)"
+                      title="Descompartilhar (remover acesso)"
+                      class="h-8 px-2.5 rounded-md text-[12px] font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 hover:bg-red-100 dark:hover:bg-red-500/20 border border-red-200 dark:border-red-500/30 flex items-center gap-1 transition"
+                    >
+                      <i data-lucide="user-minus" class="w-3.5 h-3.5"></i>
+                      <span class="hidden sm:inline">Remover</span>
+                    </button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== MODAL: NOVO QUADRO ==================== -->
+    <div x-cloak x-show="showNewBoardModal" @keydown.escape.window="showNewBoardModal = false"
+      class="fixed inset-0 z-50 bg-slate-950/60 dark:bg-black/75 flex items-start justify-center p-4 pt-16">
+      <div @click.outside="showNewBoardModal = false" class="w-full max-w-md rounded-xl bg-white dark:bg-hubpanel shadow-2xl border border-slate-200 dark:border-hubborder overflow-hidden text-ink dark:text-slate-100">
+        <div class="px-5 py-3.5 border-b border-slate-200 dark:border-hubborder flex items-center justify-between">
+          <h2 class="font-semibold text-[15px] text-ink dark:text-white">Criar novo quadro</h2>
+          <button @click="showNewBoardModal = false" class="w-7 h-7 rounded-full flex items-center justify-center text-ink-soft hover:bg-slate-100 dark:hover:bg-slate-800"><i data-lucide="x" class="w-4 h-4"></i></button>
+        </div>
+        <form @submit.prevent="submitNewBoard()" class="p-5 space-y-3.5">
+          <div>
+            <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Nome do Quadro *</label>
+            <input type="text" required x-model="newBoardForm.name" placeholder="Ex: HubUP CRM Enterprise"
+              class="w-full h-9 px-3 text-[13px] rounded-lg bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-white focus:outline-none focus:border-sky-500 dark:focus:border-neon" />
+          </div>
+          <div>
+            <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Prefixo dos Cartões * (2-8 letras)</label>
+            <input type="text" required maxlength="8" x-model="newBoardForm.prefix_key" placeholder="Ex: CRM"
+              class="w-full h-9 px-3 text-[13px] font-mono uppercase rounded-lg bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-white focus:outline-none focus:border-sky-500 dark:focus:border-neon" />
+          </div>
+          <div>
+            <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Descrição</label>
+            <textarea rows="3" x-model="newBoardForm.description" placeholder="Objetivo e escopo do quadro..."
+              class="w-full px-3 py-2 text-[13px] rounded-lg bg-white dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-white focus:outline-none focus:border-sky-500 dark:focus:border-neon"></textarea>
+          </div>
+          <div class="flex justify-end gap-2 pt-1">
+            <button type="button" @click="showNewBoardModal = false" class="h-8 px-3 rounded-md text-[13px] font-medium text-ink-soft dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Cancelar</button>
+            <button type="submit" :disabled="submitting" class="h-8 px-4 rounded-md text-[13px] font-semibold bg-sky-600 hover:bg-sky-700 dark:bg-neon text-white dark:text-slate-950 disabled:opacity-50">
+              <span x-text="submitting ? 'Criando...' : 'Criar quadro'"></span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ==================== MODAL: ATALHOS ==================== -->
+    <div x-cloak x-show="showShortcutsModal" @keydown.escape.window="showShortcutsModal = false"
+      class="fixed inset-0 z-50 bg-slate-950/60 dark:bg-black/75 flex items-start justify-center p-4 pt-20">
+      <div @click.outside="showShortcutsModal = false" class="w-full max-w-md rounded-xl bg-white dark:bg-hubpanel shadow-2xl border border-slate-200 dark:border-hubborder overflow-hidden text-ink dark:text-slate-100">
+        <div class="px-5 py-3.5 border-b border-slate-200 dark:border-hubborder flex items-center justify-between">
+          <h2 class="font-semibold text-[15px] text-ink dark:text-white">Atalhos &amp; Dicas</h2>
+          <button @click="showShortcutsModal = false" class="w-7 h-7 rounded-full flex items-center justify-center text-ink-soft hover:bg-slate-100 dark:hover:bg-slate-800"><i data-lucide="x" class="w-4 h-4"></i></button>
+        </div>
+        <div class="p-5 space-y-2.5 text-[13px]">
+          <div class="flex items-center justify-between"><span>Fechar modais e menus</span><kbd class="px-2 py-0.5 rounded bg-slate-100 dark:bg-hubbg border border-slate-300 dark:border-hubborder font-mono text-[11px]">Esc</kbd></div>
+          <div class="flex items-center justify-between"><span>Salvar cartão rápido inline</span><kbd class="px-2 py-0.5 rounded bg-slate-100 dark:bg-hubbg border border-slate-300 dark:border-hubborder font-mono text-[11px]">Enter</kbd></div>
+          <div class="flex items-center justify-between"><span>Mover cartão entre colunas</span><span class="text-ink-faint text-[12px]">Arrastar e soltar</span></div>
+          <div class="flex items-center justify-between"><span>Rolar quadro horizontalmente</span><span class="text-ink-faint text-[12px]">Arrastar o fundo</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div x-cloak x-show="toast.visible" x-transition
+      :class="toast.type === 'error' ? 'bg-red-600 text-white' : 'bg-ink dark:bg-hubpanel text-white dark:text-neon dark:border dark:border-neon/40'"
+      class="fixed bottom-20 right-5 z-50 px-4 py-2.5 rounded-lg text-[13px] font-medium shadow-xl">
+      <span x-text="toast.message"></span>
+    </div>
+  </div>
+</body>
+</html>
