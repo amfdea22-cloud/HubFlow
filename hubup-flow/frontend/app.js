@@ -17,9 +17,464 @@ function resolveApiBase() {
 
 const API_BASE = resolveApiBase();
 
+/**
+ * Fallback completo em localStorage para deploy estático (Netlify) sem backend FastAPI ativo.
+ * Mantém exatamente o mesmo contrato JSON da API REST.
+ */
+const HubupLocalStore = (() => {
+  const KEY = 'hubup_flow_standalone_db_v1';
+
+  function buildSeed() {
+    let bid = 1, cid = 1, lid = 1, cardId = 1, sid = 1;
+    const now = new Date().toISOString();
+
+    const makeBoard = (name, prefix, desc, colsCfg, labelsCfg, cardsCfg) => {
+      const board_id = bid++;
+      let nextNum = 1;
+      const labels = labelsCfg.map(([lname, lcolor]) => ({ id: lid++, board_id, name: lname, color: lcolor }));
+      const labelByName = Object.fromEntries(labels.map((l) => [l.name, l]));
+      const columns = colsCfg.map((c, idx) => ({
+        id: cid++,
+        board_id,
+        name: c.name,
+        position: idx,
+        wip_limit: c.wip ?? null,
+        color: c.color,
+        is_done: Boolean(c.done),
+      }));
+      const colByName = Object.fromEntries(columns.map((c) => [c.name, c]));
+      const colPos = Object.fromEntries(columns.map((c) => [c.id, 0]));
+
+      const cards = cardsCfg.map((cc) => {
+        const col = colByName[cc.col];
+        const id = cardId++;
+        const code = `${prefix}-${nextNum++}`;
+        const subtasks = (cc.sub || []).map(([title, done], idx) => ({
+          id: sid++, card_id: id, title, is_completed: Boolean(done), position: idx,
+        }));
+        return {
+          id,
+          board_id,
+          column_id: col.id,
+          code,
+          title: cc.title,
+          description: cc.desc || null,
+          priority: cc.prio || 'media',
+          story_points: cc.pts ?? null,
+          position: colPos[col.id]++,
+          is_blocked: Boolean(cc.blocked),
+          blocked_reason: cc.reason || null,
+          assignee: cc.assignee || null,
+          created_at: now,
+          updated_at: now,
+          subtasks,
+          labels: (cc.labels || []).map((n) => labelByName[n]).filter(Boolean),
+        };
+      });
+
+      return { id: board_id, name, prefix_key: prefix, description: desc, next_card_number: nextNum, columns, labels, cards };
+    };
+
+    const boards = [
+      makeBoard(
+        'Central de Organização da Equipe', 'HUB',
+        'Hub central da equipe HubUP: apresentação do time, recursos estratégicos, FAQ, prioridades da semana e projetos em andamento.',
+        [
+          { name: 'Com Vocês, a Equipe!', color: '#0EA5E9' },
+          { name: 'Recursos', color: '#8B5CF6' },
+          { name: 'Perguntas Frequentes', color: '#06B6D4' },
+          { name: 'Prioridades da Semana', wip: 5, color: '#F59E0B' },
+          { name: 'Projetos em Progresso', wip: 4, color: '#EC4899' },
+          { name: 'A Seguir', color: '#6366F1' },
+          { name: 'Concluído', color: '#10B981', done: true },
+        ],
+        [['Equipe', '#0EA5E9'], ['Cultura', '#EC4899'], ['Guia', '#8B5CF6'], ['Estratégia', '#F59E0B'], ['Processo', '#06B6D4'], ['Entrega', '#10B981']],
+        [
+          { col: 'Com Vocês, a Equipe!', title: 'Dica HubUP: Apresente-se para o time!', desc: 'Crie seu cartão nesta coluna com sua função, produtos em que atua e hobbies.', prio: 'baixa', assignee: 'People HubUP', labels: ['Cultura', 'Guia'], sub: [['Adicionar iniciais e cargo', true], ['Compartilhar 2 curiosidades', false]] },
+          { col: 'Com Vocês, a Equipe!', title: 'André Silva — Tech Lead & Arquitetura IA', desc: 'Lidera a arquitetura do Anonymize e integrações LLM da HubUP.', prio: 'media', assignee: 'André Silva', labels: ['Equipe'] },
+          { col: 'Com Vocês, a Equipe!', title: 'Beatriz Rocha — Product Design & Frontend', desc: 'Responsável pelo Design System HubUP e experiência do usuário.', prio: 'media', assignee: 'Beatriz Rocha', labels: ['Equipe'] },
+          { col: 'Com Vocês, a Equipe!', title: 'Guia de etiquetas e prioridades do HubUP Flow', desc: 'Alinhamento de etiquetas e prioridades entre todas as squads.', prio: 'baixa', assignee: 'Marina Costa', labels: ['Guia', 'Processo'] },
+          { col: 'Recursos', title: 'Estratégia e Roadmap 12 Meses — Ecossistema HubUP', desc: 'OKRs trimestrais de Anonymize, Radar FX, Barize, SkyHub e Ads Testing.', prio: 'alta', assignee: 'Marina Costa', labels: ['Estratégia'], sub: [['OKRs Q1-Q2 revisados', true], ['Metas Enterprise', true], ['Revisão semestral', false]] },
+          { col: 'Recursos', title: 'Kit de Marca, Logos e Design System HubUP', desc: 'Paleta oficial, tipografia Inter e ícones padronizados.', prio: 'media', assignee: 'Beatriz Rocha', labels: ['Guia'], sub: [['Logos SVG', true], ['Tokens CSS', true], ['Templates comerciais', false]] },
+          { col: 'Recursos', title: 'Playbook de Onboarding para Novos Integrantes', desc: 'Checklist para a primeira semana na HubUP.', prio: 'media', assignee: 'People HubUP', labels: ['Processo', 'Cultura'], sub: [['Acessos Git e VPN', true], ['Setup local', true], ['Café 1:1 com líderes', false]] },
+          { col: 'Perguntas Frequentes', title: 'Como falar sobre a HubUP para clientes e parceiros?', desc: 'Ecossistema SaaS e IA focado em produtividade corporativa e conformidade LGPD.', prio: 'baixa', assignee: 'Sofia Ribeiro', labels: ['Guia', 'Estratégia'] },
+          { col: 'Perguntas Frequentes', title: 'Como nossa equipe se comunica no dia a dia?', desc: 'Comunicação assíncrona nos cartões, Daily às 09h30 e Demo às sextas às 16h.', prio: 'media', assignee: 'Marina Costa', labels: ['Processo'] },
+          { col: 'Perguntas Frequentes', title: 'Onde encontro assets de design, APIs e documentação?', desc: 'Todos os links centralizados na coluna Recursos.', prio: 'baixa', assignee: 'Felipe Duarte', labels: ['Guia'] },
+          { col: 'Prioridades da Semana', title: 'Sprint Semanal — Alinhamento Geral HubUP', desc: 'Checklist principal de entregas da semana.', prio: 'alta', pts: 5, assignee: 'Marina Costa', labels: ['Estratégia', 'Processo'], sub: [['Revisar alertas WIP', true], ['Validar release Anonymize', true], ['Aprovar criativos Ads', false], ['Resumo semanal sexta', false]] },
+          { col: 'Prioridades da Semana', title: 'Revisão de SLA e monitoramento SkyHub', desc: 'Latência p95 e alertas de infraestrutura.', prio: 'alta', pts: 3, assignee: 'Felipe Duarte', labels: ['Processo'], sub: [['Auditar OpenTelemetry', true], ['Validar backup PG 17', false]] },
+          { col: 'Projetos em Progresso', title: 'Lançamento Comercial Anonymize Enterprise (LGPD)', desc: 'Coordenação para os primeiros 10 clientes piloto.', prio: 'critica', pts: 13, assignee: 'André Silva', labels: ['Estratégia', 'Entrega'], sub: [['Demo interativa', true], ['Checklist DPO', true], ['Onboarding 3 clientes', false]] },
+          { col: 'Projetos em Progresso', title: 'Padronização Visual HubUP Flow (Claro & Escuro)', desc: 'Evolução da plataforma interna de gestão ágil.', prio: 'alta', pts: 8, assignee: 'Beatriz Rocha', labels: ['Entrega', 'Cultura'], sub: [['Modo Claro/Escuro', true], ['Menu planos de fundo', true], ['Central da Equipe', true]] },
+          { col: 'A Seguir', title: 'Planejamento Trimestral Q2 — Workshop de Squads', desc: 'Definir prioridades de Radar FX, Barize e automações IA.', prio: 'media', pts: 5, assignee: 'Marina Costa', labels: ['Estratégia'], sub: [['Coletar feedbacks', false], ['Capacidade Story Points', false]] },
+          { col: 'A Seguir', title: 'Atualizar materiais de produto e capturas das lojas', desc: 'Renovar screenshots e vídeos curtos dos produtos HubUP.', prio: 'baixa', pts: 3, assignee: 'Sofia Ribeiro', labels: ['Guia'] },
+          { col: 'Concluído', title: 'Migração do Workspace Corporativo para HubUP Flow', desc: 'Todos os produtos e Central da Equipe unificados.', prio: 'alta', pts: 8, assignee: 'André Silva', labels: ['Entrega', 'Cultura'], sub: [['Importação dos quadros', true], ['Treinamento da equipe', true], ['Validação métricas', true]] },
+        ]
+      ),
+      makeBoard(
+        'Anonymize — MVP LGPD', 'ANON',
+        'Motor de anonimização inteligente de documentos e PII em conformidade com a LGPD.',
+        [
+          { name: 'Backlog', color: '#64748B' },
+          { name: 'A Fazer', wip: 4, color: '#0EA5E9' },
+          { name: 'Em Progresso', wip: 2, color: '#00F0FF' },
+          { name: 'Code Review / QA', wip: 2, color: '#A855F7' },
+          { name: 'Concluído', color: '#10B981', done: true },
+        ],
+        [['LGPD', '#00F0FF'], ['IA / NER', '#A855F7'], ['Backend', '#0EA5E9'], ['Frontend', '#38BDF8'], ['Segurança', '#EF4444'], ['Compliance', '#F59E0B']],
+        [
+          { col: 'Backlog', title: 'Suporte a anonimização de arquivos DOCX e XLSX em lote', desc: 'Pipeline assíncrono para extração e mascaramento de PII em planilhas e Word.', prio: 'media', pts: 8, assignee: 'Lucas Mendes', labels: ['Backend', 'LGPD'], sub: [['Parser python-docx', false], ['Parser openpyxl CPF/CNPJ', false]] },
+          { col: 'A Fazer', title: 'Relatório de auditoria LGPD exportável em PDF assinado', desc: 'Certificado de anonimização com hash SHA-256.', prio: 'alta', pts: 5, assignee: 'Marina Costa', labels: ['Compliance', 'LGPD'], sub: [['Template HTML/PDF', true], ['Hash SHA-256 UTC', false]] },
+          { col: 'Em Progresso', title: 'Pipeline NER híbrido (Regex + LLM) para detecção de PII', desc: 'Validadores determinísticos + modelo NER para contratos jurídicos.', prio: 'critica', pts: 13, assignee: 'André Silva', labels: ['IA / NER', 'LGPD', 'Backend'], sub: [['Validadores CPF/CNPJ/e-mail', true], ['Camada NER nomes/endereços', true], ['Benchmark > 98.5%', false]] },
+          { col: 'Em Progresso', title: 'Visualizador lado a lado (Original vs Anonimizado)', desc: 'Interface interativa para revisão humana de entidades mascaradas.', prio: 'alta', pts: 5, assignee: 'Beatriz Rocha', labels: ['Frontend', 'LGPD'], sub: [['Highlight sincronizado', true], ['Aprovar/reverter entidade', false]] },
+          { col: 'Em Progresso', title: 'Cofre criptografado AES-256-GCM para pseudonimização reversível', desc: 'Reversão controlada mediante chave KMS e aprovação do DPO.', prio: 'critica', pts: 8, assignee: 'Rafael Lima', blocked: true, reason: 'Aguardando provisionamento da chave KMS corporativa em produção pelo time de SecOps.', labels: ['Segurança', 'Compliance'], sub: [['Envelope encryption', true], ['Integração KMS', false]] },
+          { col: 'Code Review / QA', title: 'Política de retenção zero (auto-purge em 15 minutos)', desc: 'Exclusão segura de temporários após download.', prio: 'alta', pts: 3, assignee: 'Rafael Lima', labels: ['Segurança', 'Backend'], sub: [['Job limpeza 60s', true], ['Teste sem resíduos', true]] },
+          { col: 'Concluído', title: 'Autenticação SSO Corporativa e RBAC (Admin / DPO / Operador)', desc: 'Controle de acesso granular com auditoria.', prio: 'alta', pts: 5, assignee: 'André Silva', labels: ['Segurança', 'Backend'], sub: [['Fluxo OAuth2/OIDC', true], ['Middleware RBAC', true]] },
+        ]
+      ),
+      makeBoard(
+        'Radar FX', 'RFX',
+        'Monitoramento cambial em tempo real, alertas inteligentes de spread e hedge automatizado.',
+        [
+          { name: 'Backlog', color: '#64748B' },
+          { name: 'A Fazer', wip: 4, color: '#0EA5E9' },
+          { name: 'Em Progresso', wip: 3, color: '#00F0FF' },
+          { name: 'Code Review / QA', wip: 2, color: '#A855F7' },
+          { name: 'Concluído', color: '#10B981', done: true },
+        ],
+        [['Market Data', '#00F0FF'], ['WebSocket', '#0EA5E9'], ['Alertas', '#F59E0B'], ['Quant / IA', '#A855F7']],
+        [
+          { col: 'A Fazer', title: 'Simulador de hedge cambial para importadores', desc: 'Exposição USD/BRL e EUR/BRL com cenários de estresse.', prio: 'media', pts: 8, assignee: 'Diego Alves', labels: ['Quant / IA'] },
+          { col: 'Em Progresso', title: 'Stream WebSocket de baixa latência USD/BRL e EUR/BRL', desc: 'Ingestão contínua com circuit breaker.', prio: 'critica', pts: 5, assignee: 'Camila Nogueira', labels: ['Market Data', 'WebSocket'], sub: [['Conector heartbeat', true], ['Cache Redis', true], ['Alerta > 250ms', false]] },
+          { col: 'Code Review / QA', title: 'Disparo de alertas via WhatsApp e Webhook em rompimento de banda', desc: 'Notificação para tesouraria.', prio: 'alta', pts: 3, assignee: 'Diego Alves', labels: ['Alertas'] },
+          { col: 'Concluído', title: 'Dashboard de cotações PTAX vs Comercial', desc: 'Comparativo histórico e spread.', prio: 'media', pts: 3, assignee: 'Camila Nogueira', labels: ['Market Data'] },
+        ]
+      ),
+      makeBoard(
+        'Barize', 'BAR',
+        'Plataforma SaaS de gestão de bares, comandas digitais, estoque inteligente e PDV.',
+        [
+          { name: 'Backlog', color: '#64748B' },
+          { name: 'A Fazer', wip: 5, color: '#0EA5E9' },
+          { name: 'Em Progresso', wip: 3, color: '#00F0FF' },
+          { name: 'Code Review / QA', wip: 2, color: '#A855F7' },
+          { name: 'Concluído', color: '#10B981', done: true },
+        ],
+        [['PDV', '#00F0FF'], ['Pagamentos', '#10B981'], ['Mobile', '#A855F7'], ['Estoque', '#F59E0B']],
+        [
+          { col: 'A Fazer', title: 'Previsão de ruptura de estoque de bebidas para fins de semana', desc: 'Sugerir pedido automático por giro.', prio: 'media', pts: 5, assignee: 'Thiago Martins', labels: ['Estoque'] },
+          { col: 'Em Progresso', title: 'Fechamento de comanda com divisão de conta via PIX', desc: 'QR Code PIX dinâmico com baixa automática.', prio: 'critica', pts: 8, assignee: 'Juliana Prado', labels: ['PDV', 'Pagamentos'], sub: [['UI divisão por item', true], ['Webhook PIX', false]] },
+          { col: 'Concluído', title: 'Impressão térmica de pedidos na cozinha e bar (ESC/POS)', desc: 'Roteamento automático por categoria.', prio: 'alta', pts: 5, assignee: 'Thiago Martins', labels: ['PDV'] },
+        ]
+      ),
+      makeBoard(
+        'SkyHub', 'SKY',
+        'Hub de integrações, orquestração de microsserviços e telemetria cloud do ecossistema HubUP.',
+        [
+          { name: 'Backlog', color: '#64748B' },
+          { name: 'A Fazer', wip: 4, color: '#0EA5E9' },
+          { name: 'Em Progresso', wip: 3, color: '#00F0FF' },
+          { name: 'Code Review / QA', wip: 2, color: '#A855F7' },
+          { name: 'Concluído', color: '#10B981', done: true },
+        ],
+        [['Cloud', '#0EA5E9'], ['Observabilidade', '#00F0FF'], ['API Gateway', '#A855F7'], ['DevOps', '#F59E0B']],
+        [
+          { col: 'Em Progresso', title: 'Rate limiting adaptativo por tenant no API Gateway', desc: 'Cotas dinâmicas Enterprise/Pro.', prio: 'alta', pts: 5, assignee: 'Felipe Duarte', labels: ['API Gateway', 'Cloud'] },
+          { col: 'Code Review / QA', title: 'Tracing distribuído OpenTelemetry entre serviços HubUP', desc: 'Propagação de traceparent ponta a ponta.', prio: 'alta', pts: 8, assignee: 'Felipe Duarte', labels: ['Observabilidade', 'DevOps'] },
+          { col: 'Concluído', title: 'Provisionamento IaC do cluster PostgreSQL 17 HA', desc: 'Backups PITR e réplica de leitura.', prio: 'critica', pts: 8, assignee: 'Rafael Lima', labels: ['Cloud', 'DevOps'] },
+        ]
+      ),
+      makeBoard(
+        'Ads Testing', 'ADS',
+        'Motor de experimentação A/B de criativos, análise de ROAS e geração de variações com IA.',
+        [
+          { name: 'Backlog', color: '#64748B' },
+          { name: 'A Fazer', wip: 4, color: '#0EA5E9' },
+          { name: 'Em Progresso', wip: 3, color: '#00F0FF' },
+          { name: 'Code Review / QA', wip: 2, color: '#A855F7' },
+          { name: 'Concluído', color: '#10B981', done: true },
+        ],
+        [['Growth', '#00F0FF'], ['Meta Ads', '#0EA5E9'], ['Google Ads', '#F59E0B'], ['GenAI', '#A855F7']],
+        [
+          { col: 'A Fazer', title: 'Conector de métricas horárias Google Ads + Meta Ads', desc: 'CTR, CPA e ROAS consolidados.', prio: 'alta', pts: 5, assignee: 'Sofia Ribeiro', labels: ['Meta Ads', 'Google Ads'] },
+          { col: 'Em Progresso', title: 'Gerador de variações de copy e hooks com significância estatística', desc: 'Pausa automática quando p-value < 0.05.', prio: 'alta', pts: 8, assignee: 'Sofia Ribeiro', blocked: true, reason: 'Limite de rate da conta sandbox do Meta Marketing API aguardando aprovação.', labels: ['GenAI', 'Growth'] },
+          { col: 'Concluído', title: 'Biblioteca de criativos vencedores com busca semântica', desc: 'Embeddings de copy + tags.', prio: 'baixa', pts: 3, assignee: 'Beatriz Rocha', labels: ['Growth', 'GenAI'] },
+        ]
+      ),
+    ];
+
+    return { boards, seq: { bid, cid, lid, cardId, sid } };
+  }
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (_) { /* ignore */ }
+    const seeded = buildSeed();
+    save(seeded);
+    return seeded;
+  }
+
+  function save(db) {
+    localStorage.setItem(KEY, JSON.stringify(db));
+  }
+
+  function boardDetail(b) {
+    const wip_alerts = [];
+    const columns = [...b.columns].sort((a, c) => a.position - c.position).map((col) => {
+      const cards = b.cards.filter((x) => x.column_id === col.id).sort((a, c) => a.position - c.position || a.id - c.id);
+      const exceeded = Boolean(col.wip_limit && col.wip_limit > 0 && cards.length > col.wip_limit);
+      if (exceeded) wip_alerts.push({ column_id: col.id, column_name: col.name, current_count: cards.length, wip_limit: col.wip_limit });
+      return { ...col, wip_exceeded: exceeded, cards };
+    });
+    return { id: b.id, name: b.name, prefix_key: b.prefix_key, description: b.description, columns, labels: b.labels, wip_alerts };
+  }
+
+  function reindex(board, colId) {
+    const list = board.cards.filter((c) => c.column_id === colId).sort((a, b) => a.position - b.position || a.id - b.id);
+    list.forEach((c, idx) => { c.position = idx; });
+  }
+
+  function request(path, options = {}) {
+    const method = (options.method || 'GET').toUpperCase();
+    const body = options.body ? JSON.parse(options.body) : {};
+    const db = load();
+
+    if (path === '/health') return { status: 'online', service: 'HubUP Flow (Cloud Standalone)', version: '1.0.0' };
+
+    if (path === '/boards' && method === 'GET') {
+      return db.boards.map((b) => {
+        const det = boardDetail(b);
+        return {
+          id: b.id, name: b.name, prefix_key: b.prefix_key, description: b.description,
+          card_count: b.cards.length, wip_alerts_count: det.wip_alerts.length,
+        };
+      });
+    }
+
+    if (path === '/boards' && method === 'POST') {
+      const prefix = String(body.prefix_key || '').trim().toUpperCase();
+      if (db.boards.some((b) => b.prefix_key === prefix)) throw new Error(`Já existe um quadro com prefixo '${prefix}'.`);
+      const board_id = db.seq.bid++;
+      const cols = [
+        ['Backlog', 0, null, '#64748B', false],
+        ['A Fazer', 1, 5, '#0EA5E9', false],
+        ['Em Progresso', 2, 3, '#00F0FF', false],
+        ['Code Review / QA', 3, 2, '#A855F7', false],
+        ['Concluído', 4, null, '#10B981', true],
+      ].map(([name, position, wip_limit, color, is_done]) => ({ id: db.seq.cid++, board_id, name, position, wip_limit, color, is_done }));
+      const labels = [['Backend', '#0EA5E9'], ['Frontend', '#00F0FF'], ['IA / LLM', '#A855F7'], ['Segurança', '#EF4444'], ['Infra', '#F59E0B']]
+        .map(([name, color]) => ({ id: db.seq.lid++, board_id, name, color }));
+      const nb = { id: board_id, name: body.name.trim(), prefix_key: prefix, description: body.description || null, next_card_number: 1, columns: cols, labels, cards: [] };
+      db.boards.push(nb);
+      save(db);
+      return boardDetail(nb);
+    }
+
+    let m;
+    if ((m = path.match(/^\/boards\/(\d+)$/)) && method === 'GET') {
+      const b = db.boards.find((x) => x.id === Number(m[1]));
+      if (!b) throw new Error('Quadro não encontrado.');
+      return boardDetail(b);
+    }
+
+    if ((m = path.match(/^\/boards\/(\d+)\/metrics$/)) && method === 'GET') {
+      const b = db.boards.find((x) => x.id === Number(m[1]));
+      if (!b) throw new Error('Quadro não encontrado.');
+      const det = boardDetail(b);
+      let done_cards = 0, done_story_points = 0;
+      const columns = det.columns.map((c) => {
+        const pts = c.cards.reduce((s, x) => s + (x.story_points || 0), 0);
+        if (c.is_done) { done_cards += c.cards.length; done_story_points += pts; }
+        return { column_id: c.id, name: c.name, color: c.color, card_count: c.cards.length, story_points: pts, wip_limit: c.wip_limit, wip_exceeded: c.wip_exceeded, is_done: c.is_done };
+      });
+      const total_cards = b.cards.length;
+      const total_story_points = b.cards.reduce((s, x) => s + (x.story_points || 0), 0);
+      const blocked_items = b.cards.filter((x) => x.is_blocked);
+      const total_subtasks = b.cards.reduce((s, x) => s + (x.subtasks || []).length, 0);
+      const completed_subtasks = b.cards.reduce((s, x) => s + (x.subtasks || []).filter((st) => st.is_completed).length, 0);
+      const prioCounts = { critica: 0, alta: 0, media: 0, baixa: 0 };
+      b.cards.forEach((c) => { if (c.priority in prioCounts) prioCounts[c.priority]++; });
+      return {
+        board_id: b.id, board_name: b.name, total_cards, done_cards, blocked_cards: blocked_items.length,
+        total_story_points, done_story_points, completion_rate: total_cards ? Number(((done_cards / total_cards) * 100).toFixed(1)) : 0,
+        total_subtasks, completed_subtasks, wip_alerts: det.wip_alerts, columns,
+        priorities: ['critica', 'alta', 'media', 'baixa'].map((p) => ({ priority: p, count: prioCounts[p] })),
+        blocked_items,
+      };
+    }
+
+    if ((m = path.match(/^\/boards\/(\d+)\/columns\/reorder$/)) && method === 'PATCH') {
+      const b = db.boards.find((x) => x.id === Number(m[1]));
+      if (!b) throw new Error('Quadro não encontrado.');
+      const byId = Object.fromEntries(b.columns.map((c) => [c.id, c]));
+      let pos = 0;
+      const seen = new Set();
+      (body.column_ids || []).forEach((id) => { if (byId[id] && !seen.has(id)) { byId[id].position = pos++; seen.add(id); } });
+      b.columns.forEach((c) => { if (!seen.has(c.id)) c.position = pos++; });
+      save(db);
+      return boardDetail(b);
+    }
+
+    if ((m = path.match(/^\/columns\/(\d+)$/)) && method === 'PATCH') {
+      const colId = Number(m[1]);
+      for (const b of db.boards) {
+        const col = b.columns.find((c) => c.id === colId);
+        if (col) {
+          if (body.name !== undefined) col.name = body.name;
+          if (body.color !== undefined) col.color = body.color;
+          if (body.wip_limit !== undefined) col.wip_limit = body.wip_limit === 0 ? null : body.wip_limit;
+          save(db);
+          return boardDetail(b).columns.find((c) => c.id === colId);
+        }
+      }
+      throw new Error('Coluna não encontrada.');
+    }
+
+    if ((m = path.match(/^\/boards\/(\d+)\/cards$/)) && method === 'POST') {
+      const b = db.boards.find((x) => x.id === Number(m[1]));
+      if (!b) throw new Error('Quadro não encontrado.');
+      const id = db.seq.cardId++;
+      const now = new Date().toISOString();
+      const pos = b.cards.filter((c) => c.column_id === body.column_id).length;
+      const card = {
+        id, board_id: b.id, column_id: body.column_id,
+        code: `${b.prefix_key}-${b.next_card_number++}`,
+        title: String(body.title || '').trim(),
+        description: body.description || null,
+        priority: body.priority || 'media',
+        story_points: body.story_points ?? null,
+        position: pos,
+        is_blocked: Boolean(body.is_blocked),
+        blocked_reason: body.is_blocked ? (body.blocked_reason || null) : null,
+        assignee: body.assignee || null,
+        created_at: now, updated_at: now,
+        subtasks: (body.subtasks || []).map((t, i) => ({ id: db.seq.sid++, card_id: id, title: t, is_completed: false, position: i })),
+        labels: b.labels.filter((l) => (body.label_ids || []).includes(l.id)),
+      };
+      b.cards.push(card);
+      save(db);
+      return card;
+    }
+
+    if ((m = path.match(/^\/cards\/(\d+)\/move$/)) && method === 'PATCH') {
+      const cidNum = Number(m[1]);
+      for (const b of db.boards) {
+        const card = b.cards.find((c) => c.id === cidNum);
+        if (card) {
+          const oldCol = card.column_id;
+          const targetCol = body.target_column_id;
+          const others = b.cards.filter((c) => c.column_id === targetCol && c.id !== card.id).sort((a, x) => a.position - x.position || a.id - x.id);
+          card.column_id = targetCol;
+          const idx = Math.max(0, Math.min(body.new_position ?? others.length, others.length));
+          others.splice(idx, 0, card);
+          others.forEach((c, i) => { c.position = i; });
+          if (oldCol !== targetCol) reindex(b, oldCol);
+          save(db);
+          return card;
+        }
+      }
+      throw new Error('Card não encontrado.');
+    }
+
+    if ((m = path.match(/^\/cards\/(\d+)$/)) && method === 'PATCH') {
+      const cidNum = Number(m[1]);
+      for (const b of db.boards) {
+        const card = b.cards.find((c) => c.id === cidNum);
+        if (card) {
+          const oldCol = card.column_id;
+          if (body.title !== undefined) card.title = body.title;
+          if (body.description !== undefined) card.description = body.description;
+          if (body.priority !== undefined) card.priority = body.priority;
+          if (body.story_points !== undefined) card.story_points = body.story_points;
+          if (body.assignee !== undefined) card.assignee = body.assignee;
+          if (body.is_blocked !== undefined) card.is_blocked = body.is_blocked;
+          if (body.blocked_reason !== undefined) card.blocked_reason = body.blocked_reason;
+          if (!card.is_blocked) card.blocked_reason = null;
+          if (body.label_ids !== undefined) card.labels = b.labels.filter((l) => (body.label_ids || []).includes(l.id));
+          if (body.column_id !== undefined && body.column_id !== oldCol) {
+            card.column_id = body.column_id;
+            card.position = 99999;
+            reindex(b, oldCol);
+            reindex(b, card.column_id);
+          }
+          card.updated_at = new Date().toISOString();
+          save(db);
+          return card;
+        }
+      }
+      throw new Error('Card não encontrado.');
+    }
+
+    if ((m = path.match(/^\/cards\/(\d+)$/)) && method === 'DELETE') {
+      const cidNum = Number(m[1]);
+      for (const b of db.boards) {
+        const idx = b.cards.findIndex((c) => c.id === cidNum);
+        if (idx >= 0) {
+          const colId = b.cards[idx].column_id;
+          b.cards.splice(idx, 1);
+          reindex(b, colId);
+          save(db);
+          return null;
+        }
+      }
+      throw new Error('Card não encontrado.');
+    }
+
+    if ((m = path.match(/^\/cards\/(\d+)\/subtasks$/)) && method === 'POST') {
+      const cidNum = Number(m[1]);
+      for (const b of db.boards) {
+        const card = b.cards.find((c) => c.id === cidNum);
+        if (card) {
+          const st = { id: db.seq.sid++, card_id: cidNum, title: String(body.title || '').trim(), is_completed: false, position: card.subtasks.length };
+          card.subtasks.push(st);
+          save(db);
+          return st;
+        }
+      }
+      throw new Error('Card não encontrado.');
+    }
+
+    if ((m = path.match(/^\/subtasks\/(\d+)$/)) && method === 'PATCH') {
+      const sidNum = Number(m[1]);
+      for (const b of db.boards) {
+        for (const card of b.cards) {
+          const st = card.subtasks.find((s) => s.id === sidNum);
+          if (st) {
+            if (body.is_completed !== undefined) st.is_completed = body.is_completed;
+            if (body.title !== undefined) st.title = body.title;
+            save(db);
+            return st;
+          }
+        }
+      }
+      throw new Error('Subtarefa não encontrada.');
+    }
+
+    if ((m = path.match(/^\/subtasks\/(\d+)$/)) && method === 'DELETE') {
+      const sidNum = Number(m[1]);
+      for (const b of db.boards) {
+        for (const card of b.cards) {
+          const idx = card.subtasks.findIndex((s) => s.id === sidNum);
+          if (idx >= 0) {
+            card.subtasks.splice(idx, 1);
+            save(db);
+            return null;
+          }
+        }
+      }
+      throw new Error('Subtarefa não encontrada.');
+    }
+
+    throw new Error(`Endpoint local não suportado: ${method} ${path}`);
+  }
+
+  return { request };
+})();
+
 function hubupFlow() {
   return {
     apiOnline: false,
+    localMode: false,
     apiVersion: '1.0.0',
     loading: true,
     submitting: false,
@@ -208,6 +663,10 @@ function hubupFlow() {
     },
 
     async apiFetch(path, options = {}) {
+      if (this.localMode) {
+        return HubupLocalStore.request(path, options);
+      }
+
       const response = await fetch(`${API_BASE}${path}`, {
         headers: {
           'Content-Type': 'application/json',
@@ -216,15 +675,18 @@ function hubupFlow() {
         ...options,
       });
 
-      if (!response.ok) {
+      const contentType = response.headers.get('content-type') || '';
+      if (!response.ok || (response.status !== 204 && !contentType.includes('application/json'))) {
         let detail = `Erro HTTP ${response.status}`;
-        try {
-          const data = await response.json();
-          if (data.detail) {
-            detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+        if (contentType.includes('application/json')) {
+          try {
+            const data = await response.json();
+            if (data.detail) {
+              detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+            }
+          } catch (_) {
+            // ignore parse error
           }
-        } catch (_) {
-          // ignore parse error
         }
         throw new Error(detail);
       }
@@ -235,12 +697,26 @@ function hubupFlow() {
 
     async checkHealth() {
       try {
-        const data = await this.apiFetch('/health');
-        this.apiOnline = data.status === 'online';
-        this.apiVersion = data.version || '1.0.0';
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2000);
+        const response = await fetch(`${API_BASE}/health`, { signal: controller.signal });
+        clearTimeout(timer);
+        const contentType = response.headers.get('content-type') || '';
+        if (response.ok && contentType.includes('application/json')) {
+          const data = await response.json();
+          if (data.status === 'online') {
+            this.localMode = false;
+            this.apiOnline = true;
+            this.apiVersion = data.version || '1.0.0';
+            return;
+          }
+        }
       } catch (_) {
-        this.apiOnline = false;
+        // Sem backend remoto: ativa modo standalone em localStorage (ideal para Netlify)
       }
+      this.localMode = true;
+      this.apiOnline = true;
+      this.apiVersion = '1.0.0';
     },
 
     async fetchBoards() {
