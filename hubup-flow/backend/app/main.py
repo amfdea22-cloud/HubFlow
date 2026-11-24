@@ -33,6 +33,7 @@ from app.schemas import (
     ColumnOut,
     ColumnsReorder,
     ColumnUpdate,
+    PasswordReset,
     PriorityMetricOut,
     SubtaskCreate,
     SubtaskOut,
@@ -222,6 +223,20 @@ def login_user(payload: UserLogin, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="E-mail ou senha incorretos.")
 
     return AuthResponse(token=create_access_token(user), user=UserOut.model_validate(user))
+
+
+@app.post("/api/auth/reset-password")
+def reset_password(payload: PasswordReset, db: Session = Depends(get_db)):
+    email = payload.email.strip().lower()
+    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Nenhuma conta encontrada com este e-mail.",
+        )
+    user.password_hash = hash_password(payload.new_password)
+    db.commit()
+    return {"message": "Senha redefinida com sucesso!"}
 
 
 @app.get("/api/auth/me", response_model=UserOut)

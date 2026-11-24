@@ -18,6 +18,11 @@ class UserLogin(BaseModel):
     password: str = Field(..., min_length=1, max_length=128)
 
 
+class PasswordReset(BaseModel):
+    email: str = Field(..., min_length=5, max_length=160)
+    new_password: str = Field(..., min_length=6, max_length=128)
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

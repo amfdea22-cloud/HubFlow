@@ -197,6 +197,15 @@
 
         <!-- Formulário -->
         <form @submit.prevent="submitAuth()" class="px-7 py-5 space-y-4">
+          <!-- Sucesso -->
+          <div
+            x-show="authSuccess"
+            class="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-500/40 text-[12px] font-medium text-emerald-700 dark:text-emerald-300 flex items-center gap-2"
+          >
+            <i data-lucide="check-circle-2" class="w-4 h-4 shrink-0"></i>
+            <span x-text="authSuccess"></span>
+          </div>
+
           <!-- Erro -->
           <div
             x-show="authError"
@@ -206,11 +215,17 @@
             <span x-text="authError"></span>
           </div>
 
+          <!-- Cabeçalho de Recuperação de Senha -->
+          <div x-show="authTab === 'reset'" class="p-3 rounded-lg bg-sky-50 dark:bg-hubbg border border-sky-200 dark:border-hubborder text-[12px] text-ink-soft dark:text-slate-300">
+            Informe o e-mail da sua conta e defina uma nova senha de acesso.
+          </div>
+
           <!-- Nome (apenas no cadastro) -->
           <div x-show="authTab === 'register'">
             <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Nome completo</label>
             <input
               type="text"
+              autocomplete="name"
               :required="authTab === 'register'"
               x-model="authForm.name"
               placeholder="Ex: André Silva"
@@ -223,6 +238,7 @@
             <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">E-mail</label>
             <input
               type="email"
+              autocomplete="email"
               required
               x-model="authForm.email"
               placeholder="voce@empresa.com.br"
@@ -230,16 +246,18 @@
             />
           </div>
 
-          <!-- Senha -->
+          <!-- Senha / Nova senha -->
           <div>
-            <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Senha</label>
+            <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1"
+              x-text="authTab === 'reset' ? 'Nova senha' : 'Senha'"></label>
             <div class="relative">
               <input
                 :type="showPassword ? 'text' : 'password'"
+                :autocomplete="authTab === 'login' ? 'current-password' : 'new-password'"
                 required
-                :minlength="authTab === 'register' ? 6 : 1"
+                :minlength="authTab === 'login' ? 1 : 6"
                 x-model="authForm.password"
-                :placeholder="authTab === 'register' ? 'Mínimo de 6 caracteres' : 'Digite sua senha'"
+                :placeholder="authTab === 'login' ? 'Digite sua senha' : 'Mínimo de 6 caracteres'"
                 class="w-full h-10 pl-3 pr-10 text-[14px] rounded-lg bg-slate-50 dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-white placeholder-ink-faint focus:outline-none focus:border-sky-500 dark:focus:border-neon focus:ring-1 focus:ring-sky-500 dark:focus:ring-neon/40"
               />
               <button
@@ -253,13 +271,57 @@
             </div>
           </div>
 
+          <!-- Confirmar nova senha (apenas na recuperação) -->
+          <div x-show="authTab === 'reset'">
+            <label class="block text-[12px] font-semibold text-ink-soft dark:text-slate-300 mb-1">Confirmar nova senha</label>
+            <input
+              :type="showPassword ? 'text' : 'password'"
+              autocomplete="new-password"
+              :required="authTab === 'reset'"
+              minlength="6"
+              x-model="authForm.confirmPassword"
+              placeholder="Repita a nova senha"
+              class="w-full h-10 px-3 text-[14px] rounded-lg bg-slate-50 dark:bg-hubbg border border-slate-300 dark:border-hubborder text-ink dark:text-white placeholder-ink-faint focus:outline-none focus:border-sky-500 dark:focus:border-neon focus:ring-1 focus:ring-sky-500 dark:focus:ring-neon/40"
+            />
+          </div>
+
+          <!-- Lembrar senha + Esqueci minha senha -->
+          <div x-show="authTab === 'login'" class="flex items-center justify-between gap-2 text-[12px]">
+            <label class="inline-flex items-center gap-2 cursor-pointer select-none text-ink-soft dark:text-slate-300">
+              <input
+                type="checkbox"
+                x-model="rememberMe"
+                class="w-4 h-4 rounded border-slate-300 dark:border-hubborder accent-sky-600 dark:accent-[#00F0FF] cursor-pointer"
+              />
+              <span>Lembrar senha</span>
+            </label>
+            <button
+              type="button"
+              @click="authTab = 'reset'; authError = ''; authSuccess = ''; authForm.password = ''; authForm.confirmPassword = ''; refreshIcons()"
+              class="font-semibold text-sky-600 dark:text-neon hover:underline underline-offset-2"
+            >
+              Esqueci minha senha
+            </button>
+          </div>
+
           <button
             type="submit"
             :disabled="authSubmitting"
             class="w-full h-10 rounded-lg text-[14px] font-semibold bg-gradient-to-r from-sky-600 to-indigo-600 dark:from-neon dark:to-neonblue hover:brightness-110 text-white dark:text-slate-950 shadow-md transition disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            <span x-text="authSubmitting ? 'Autenticando...' : (authTab === 'login' ? 'Entrar no HubFlow' : 'Criar conta e entrar')"></span>
+            <span x-text="authSubmitting ? 'Processando...' : (authTab === 'login' ? 'Entrar no HubFlow' : (authTab === 'register' ? 'Criar conta e entrar' : 'Redefinir senha'))"></span>
           </button>
+
+          <!-- Voltar ao login na aba reset -->
+          <div x-show="authTab === 'reset'" class="text-center">
+            <button
+              type="button"
+              @click="authTab = 'login'; authError = ''; authSuccess = ''"
+              class="text-[12px] font-semibold text-ink-soft dark:text-slate-400 hover:text-sky-600 dark:hover:text-neon"
+            >
+              ← Voltar para Entrar
+            </button>
+          </div>
 
           <!-- Acesso rápido demo -->
           <div x-show="authTab === 'login'" class="pt-2 border-t border-slate-100 dark:border-hubborder text-center space-y-2">

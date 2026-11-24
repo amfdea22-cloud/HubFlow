@@ -291,6 +291,17 @@ const HubupLocalStore = (() => {
         return { token: `local.${btoa(email)}`, user: safeUser };
       }
 
+      if (path === '/auth/reset-password' && method === 'POST') {
+        const email = String(body.email || '').trim().toLowerCase();
+        const newPassword = String(body.new_password || '');
+        if (newPassword.length < 6) throw new Error('A nova senha deve ter pelo menos 6 caracteres.');
+        const found = users.find((u) => u.email === email);
+        if (!found) throw new Error('Nenhuma conta encontrada com este e-mail.');
+        found.password = btoa(newPassword);
+        localStorage.setItem(USERS_KEY, JSON.stringify(users));
+        return { message: 'Senha redefinida com sucesso!' };
+      }
+
       if (path === '/auth/me' && method === 'GET') {
         const auth = options.headers?.Authorization || '';
         const token = auth.replace(/^Bearer\s+/i, '').trim();
@@ -608,15 +619,18 @@ function hubupFlow() {
     // Autenticação de usuário
     authChecked: false,
     isAuthenticated: false,
-    authToken: localStorage.getItem('hubup_auth_token') || null,
-    authTab: 'login', // 'login' | 'register'
+    authToken: localStorage.getItem('hubup_auth_token') || sessionStorage.getItem('hubup_auth_token') || null,
+    authTab: 'login', // 'login' | 'register' | 'reset'
     authSubmitting: false,
     authError: '',
+    authSuccess: '',
     showPassword: false,
+    rememberMe: localStorage.getItem('hubup_remember_me') !== 'false',
     authForm: {
       name: '',
-      email: '',
+      email: localStorage.getItem('hubup_remembered_email') || '',
       password: '',
+      confirmPassword: '',
     },
 
     // Menu da Conta (canto superior direito)
@@ -757,7 +771,16 @@ function hubupFlow() {
 
     setAuthenticatedUser(user, token) {
       this.authToken = token;
-      localStorage.setItem('hubup_auth_token', token);
+      localStorage.setItem('hubup_remember_me', String(this.rememberMe));
+      if (this.rememberMe) {
+        localStorage.setItem('hubup_auth_token', token);
+        localStorage.setItem('hubup_remembered_email', user.email);
+        sessionStorage.removeItem('hubup_auth_token');
+      } else {
+        sessionStorage.setItem('hubup_auth_token', token);
+        localStorage.removeItem('hubup_auth_token');
+        localStorage.removeItem('hubup_remembered_email');
+      }
       this.currentUser = {
         id: user.id,
         name: user.name,
@@ -767,6 +790,7 @@ function hubupFlow() {
       };
       this.isAuthenticated = true;
       this.authError = '';
+      this.authSuccess = '';
     },
 
     async restoreSession() {
@@ -780,6 +804,7 @@ function hubupFlow() {
         this.setAuthenticatedUser(user, this.authToken);
       } catch (_) {
         localStorage.removeItem('hubup_auth_token');
+        sessionStorage.removeItem('hubup_auth_token');
         this.authToken = null;
         this.isAuthenticated = false;
       } finally {
@@ -789,8 +814,31 @@ function hubupFlow() {
 
     async submitAuth() {
       this.authError = '';
+      this.authSuccess = '';
       this.authSubmitting = true;
       try {
+        if (this.authTab === 'reset') {
+          if (this.authForm.password.length < 6) {
+            throw new Error('A nova senha deve ter pelo menos 6 caracteres.');
+          }
+          if (this.authForm.password !== this.authForm.confirmPassword) {
+            throw new Error('As senhas informadas não conferem.');
+          }
+          await this.apiFetch('/auth/reset-password', {
+            method: 'POST',
+            body: JSON.stringify({
+              email: this.authForm.email.trim(),
+              new_password: this.authForm.password,
+            }),
+          });
+          this.authTab = 'login';
+          this.authForm.password = '';
+          this.authForm.confirmPassword = '';
+          this.authSuccess = 'Senha redefinida com sucesso! Entre com sua nova senha.';
+          this.notify('Senha redefinida com sucesso!');
+          return;
+        }
+
         const isRegister = this.authTab === 'register';
         const endpoint = isRegister ? '/auth/register' : '/auth/login';
         const payload = isRegister
@@ -809,7 +857,12 @@ function hubupFlow() {
           body: JSON.stringify(payload),
         });
         this.setAuthenticatedUser(res.user, res.token);
-        this.authForm = { name: '', email: '', password: '' };
+        this.authForm = {
+          name: '',
+          email: this.rememberMe ? res.user.email : '',
+          password: '',
+          confirmPassword: '',
+        };
         this.showPassword = false;
         this.notify(`Bem-vindo(a), ${res.user.name}!`);
         await this.loadWorkspace();
@@ -831,11 +884,18 @@ function hubupFlow() {
       this.closeAccountMenu();
       this.closeMenu();
       localStorage.removeItem('hubup_auth_token');
+      sessionStorage.removeItem('hubup_auth_token');
       this.authToken = null;
       this.isAuthenticated = false;
       this.authTab = 'login';
       this.authError = '';
-      this.authForm = { name: '', email: '', password: '' };
+      this.authSuccess = '';
+      this.authForm = {
+        name: '',
+        email: localStorage.getItem('hubup_remembered_email') || '',
+        password: '',
+        confirmPassword: '',
+      };
       this.notify('Sessão encerrada com sucesso.');
       this.refreshIcons();
     },
